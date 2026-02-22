@@ -1,8 +1,18 @@
+"""
+Test Suite Conftest
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import os
 import sys
 import pytest
 
-# ensure workspace root is on sys.path so our application packages can be imported
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -15,12 +25,12 @@ def clear_fallback(monkeypatch):
     """Wipe the in-memory redis fallback before and after each test and override
     the redis helpers so they always operate on the in-memory store.
     """
-    # ensure a clean slate
+    
     _fallback.clear()
     global _redis_client
     _redis_client = None
 
-    # stub out client calls so tests don't attempt network
+    
     import store.client as client
 
     async def fake_get(key: str):
@@ -36,7 +46,7 @@ def clear_fallback(monkeypatch):
     monkeypatch.setattr(client, "redis_set", fake_set)
     monkeypatch.setattr(client, "redis_delete", fake_delete)
 
-    # also update any modules that imported renames at import-time
+    
     import store.weights as wstore
     import store.baseline as bstore
     import store.granger as gstore
@@ -52,11 +62,11 @@ def clear_fallback(monkeypatch):
     _redis_client = None
 
 
-# Prevent pytest from attempting to collect any modules inside the engine
-# package itself.  Those files are imported by tests and contain utility
-# functions; some of them previously started with "test_" which confused
-# test discovery.  Ignoring engine files keeps collection focused on the
-# tests directory.
+
+
+
+
+
 
 def pytest_ignore_collect(path, config):
     text = str(path)

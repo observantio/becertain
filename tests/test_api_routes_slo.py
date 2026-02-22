@@ -1,3 +1,13 @@
+"""
+Test Suite for API Routes - SLO
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import pytest
 
 from api.routes import slo as slo_route
@@ -10,16 +20,14 @@ class DummyProvider:
         self.queries = []
 
     async def query_metrics(self, query, start, end, step):
-        # record query and return minimal valid response
         self.queries.append(query)
         return {"data": {"result": [{"metric": {}, "values": [[1, "0"]]}]}}
 
-
-async def dummy_slo_evaluate(service, err_vals, tot_vals, ts, target):
+def dummy_slo_evaluate(service, err_vals, tot_vals, ts, target):
     return []
 
 
-async def dummy_remaining(service, err_vals, tot_vals, target):
+def dummy_remaining(service, err_vals, tot_vals, target):
     return None
 
 
@@ -30,7 +38,7 @@ async def test_slo_burn_default_queries(monkeypatch):
     monkeypatch.setattr(slo_route, "slo_evaluate", dummy_slo_evaluate)
     monkeypatch.setattr(slo_route, "remaining_minutes", dummy_remaining)
 
-    req = SloRequest(service="abc", start=0, end=1, step=1, target_availability=0.99)
+    req = SloRequest(tenant_id="t1", service="abc", start=0, end=1, step="1", target_availability=0.99)
     await slo_route.slo_burn(req)
 
     assert dummy.queries[0] == settings.slo_error_query_template.format(service="abc")
@@ -45,10 +53,11 @@ async def test_slo_burn_custom_queries_override(monkeypatch):
     monkeypatch.setattr(slo_route, "remaining_minutes", dummy_remaining)
 
     req = SloRequest(
+        tenant_id="t1",
         service="abc",
         start=0,
         end=1,
-        step=1,
+        step="1",
         target_availability=0.99,
         error_query="errQ",
         total_query="totQ",

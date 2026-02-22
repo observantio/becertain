@@ -1,3 +1,12 @@
+"""Tests for beCertain project.
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+you may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""you may not use this file except in compliance with the License.
+you may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""\n\n
 import pytest
 
 from engine.anomaly.detection import _mad_scores, _cusum_changepoints, _change_type, _severity, detect
@@ -8,9 +17,7 @@ def test_mad_and_cusum():
     arr = [1, 1, 1, 10, 1, 1, 1]
     import numpy as np
     m = _mad_scores(np.array(arr))
-    # dtype may be int if arr values identical; just ensure numeric
     assert m.dtype in (float, 'float64', 'int64')
-    # cusum with high threshold should flag nothing, low threshold flags some
     flags_hi = _cusum_changepoints(np.array(arr), threshold=100)
     assert not flags_hi.any()
     flags_lo = _cusum_changepoints(np.array(arr), threshold=0.1)
@@ -27,12 +34,9 @@ def test_change_type_severity():
 
 
 def test_detect_simple():
-    # create a small series with an outlier
     ts = list(range(20))
     vals = [1]*19 + [100]
-    anomalies = detect("m", ts, vals, contamination=0.1)
-    # algorithm might not flag single outlier deterministically; just ensure it
-    # returns a list and elements are MetricAnomaly if any
+    anomalies = detect("m", ts, vals)
     assert isinstance(anomalies, list)
     if anomalies:
         assert hasattr(anomalies[0], 'change_type')

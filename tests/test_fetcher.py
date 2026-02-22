@@ -1,3 +1,13 @@
+"""
+Test Suite for Engine Fetcher
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import pytest
 
 import asyncio
@@ -7,6 +17,10 @@ from engine.fetcher import fetch_metrics
 class DummyProvider:
     def __init__(self, results):
         self._results = results
+        class Metrics:
+            async def scrape(self_non):
+                return ""
+        self.metrics = Metrics()
 
     async def query_metrics(self, query, start, end, step):
         if query == "bad":
@@ -20,6 +34,6 @@ async def test_fetch_metrics_filters_exceptions():
     queries = ["a", "bad", "c"]
     res = await fetch_metrics(provider, queries, 0, 1, "15s")
     assert isinstance(res, list)
-    assert all(isinstance(r, dict) for r in res)
+    assert all(isinstance(r, tuple) and isinstance(r[1], dict) for r in res)
     assert len(res) == 2
-    assert res[0]["query"] == "a"
+    assert res[0][0] == "a"

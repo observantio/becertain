@@ -1,4 +1,12 @@
-import pytest
+"""
+Test Suite for Granger Causality Storage
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 
 from store import granger as gstore
 
@@ -21,6 +29,5 @@ async def test_granger_load_and_merge():
     new_rec = type("R", (), {"cause_metric":"c1","effect_metric":"e1","strength":0.9, "max_lag":1, "f_statistic":2, "p_value":0.1, "is_causal":True})
     merged2 = await gstore.save_and_merge(tid, svc, [new_rec])
     assert merged2[0]["strength"] == 0.9
-    # load_all_services combines results
     combined = await gstore.load_all_services(tid, [svc])
     assert combined

@@ -1,4 +1,12 @@
-import pytest
+"""
+Test Suite for Engine Weights
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 
 from engine.ml.weights import SignalWeights
 from engine.enums import Signal
@@ -24,5 +32,4 @@ def test_weighted_confidence():
     w = SignalWeights()
     score = w.weighted_confidence(1.0, 1.0, 1.0)
     assert score == pytest.approx(1.0 * w.get(Signal.metrics) + w.get(Signal.logs) + w.get(Signal.traces))
-    # get absent signal returns default
     assert w.get(Signal.events) == pytest.approx(1/len(Signal))

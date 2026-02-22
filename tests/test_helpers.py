@@ -1,4 +1,13 @@
-import asyncio
+"""
+Test Suite for Helper Functions
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import pytest
 import httpx
 
@@ -26,7 +35,7 @@ class DummyClient:
 
     async def __aenter__(self):
         return self
-n
+
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
@@ -51,7 +60,7 @@ async def test_fetch_json_http_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_json_timeout(monkeypatch):
     async def get(*args, **kwargs):
-        raise httpx.TimeoutException()
+        raise httpx.TimeoutException("timeout")
     client = DummyClient(DummyResponse())
     client.get = get
     monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: client)

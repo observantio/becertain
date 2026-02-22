@@ -1,4 +1,13 @@
-import random
+"""
+Test Suite for Fuzzy Tests
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import numpy as np
 import pytest
 
@@ -62,11 +71,9 @@ def test_fuzzy_anomaly_detection(seed):
     length = random.randint(10, 50)
     ts = list(range(length))
     vals = [random.gauss(0, 1) for _ in range(length)]
-    # inject occasional anomaly
     if length > 5:
         vals[random.randrange(length)] += random.choice([10, -10])
-    anomalies = detect("m", ts, vals, contamination=0.1)
-    # ensure no crash and return list
+    anomalies = detect("m", ts, vals)
     assert isinstance(anomalies, list)
     for a in anomalies:
         assert hasattr(a, "change_type")
@@ -76,11 +83,9 @@ def test_fuzzy_anomaly_detection(seed):
 def test_fuzzy_granger(seed):
     random.seed(seed)
     length = random.randint(15, 60)
-    # generate two correlated series sometimes
     base = [random.random() for _ in range(length)]
     other = [b + random.gauss(0, 0.5) for b in base]
     res = granger_pair_analysis("a", base, "b", other, max_lag=3)
-    # result may be None or GrangerResult, but must not raise
     if res:
         assert res.cause_metric == "a"
     allr = granger_multiple_pairs({"a": base, "b": other})
@@ -94,7 +99,6 @@ def test_fuzzy_forecast_and_degradation(seed):
     ts = list(range(length))
     vals = [random.random()*100 + i*random.random() for i in ts]
     f = forecast("m", ts, vals, threshold=50, horizon_seconds=10)
-    # forecast may return None or object
     if f:
         assert isinstance(f, object)
     d = degradation("m", ts, vals)
@@ -111,13 +115,11 @@ def test_fuzzy_correlation_and_causal(seed):
     events = correlate(anomalies, bursts, sl, window_seconds=10)
     assert isinstance(events, list)
 
-    # build random causal graph
     g = CausalGraph()
     for i in range(5):
         a = f"m{i}"
         b = f"m{(i+1)%5}"
         g.add_edge(a, b, random.random())
-    # call some graph methods
     _ = g.topological_sort()
     _ = g.root_causes()
     _ = g.simulate_intervention("m0", max_depth=3)

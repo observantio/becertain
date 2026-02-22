@@ -1,6 +1,14 @@
-import pytest
+"""
+Test Suite for Store Client
 
-from store.client import _fallback, redis_get, redis_set, redis_delete, redis_keys, is_using_fallback
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+from store.client import _fallback, redis_get, redis_set, redis_delete, redis_scan, is_using_fallback
 
 
 @pytest.mark.asyncio
@@ -16,5 +24,5 @@ async def test_keys_pattern():
     _fallback.clear()
     await redis_set("abc", "1")
     await redis_set("abx", "2")
-    keys = await redis_keys("ab*")
+    keys = await redis_scan("ab*")
     assert "abc" in keys and "abx" in keys

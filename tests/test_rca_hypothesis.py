@@ -1,4 +1,12 @@
-import pytest
+"""
+Test Suite for RCA Hypothesis Generation
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 
 from engine.rca.hypothesis import _signals_from_event, _action_for_category, generate, RootCause
 from engine.enums import RcaCategory, Severity, ChangeType
@@ -27,7 +35,6 @@ def test_signals_and_actions():
     ev.log_bursts = []
     ev.service_latency = []
     signals = _signals_from_event(ev)
-    # we should at least see a metrics signal when an anomaly exists
     assert "metrics" in signals
     assert "deployment" in _action_for_category(RcaCategory.deployment)
     assert "resource" in _action_for_category(RcaCategory.resource_exhaustion)
@@ -40,14 +47,13 @@ def test_generate_empty():
 
 
 def test_generate_with_simple_event():
-    # build a minimal correlated event structure
     anomaly = MetricAnomaly(
         metric_id="m", metric_name="m", timestamp=1, value=100,
         change_type=ChangeType.spike,
         z_score=10, mad_score=5, isolation_score=0.0,
         expected_range=(0, 1), severity=Severity.high,
         description=""
-    )]
+    )
     ev = CorrelatedEvent(
         window_start=1,
         window_end=2,

@@ -1,3 +1,13 @@
+"""
+Test Suite for Correlation Logic
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import pytest
 
 from engine.correlation.temporal import CorrelatedEvent, correlate
@@ -34,7 +44,6 @@ def test_correlate_simple():
     sl = [make_latency()]
     events = correlate(anomalies, bursts, sl, window_seconds=200)
     assert isinstance(events, list)
-    # logburst has no 'start' attribute; use window_start for anchor times
     assert isinstance(events, list)
     assert events and isinstance(events[0], CorrelatedEvent)
 

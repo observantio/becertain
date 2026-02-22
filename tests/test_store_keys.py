@@ -1,4 +1,12 @@
-import hashlib
+"""
+Test Suite for Store Keys
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 
 from store import keys
 
@@ -6,7 +14,7 @@ from store import keys
 def test_slug_consistency():
     v = "hello"
     s1 = keys._slug(v)
-    s2 = hashlib.md5(v.encode()).hexdigest()[:12]
+    s2 = hashlib.md5(v.encode()).hexdigest()
     assert s1 == s2
 
 

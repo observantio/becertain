@@ -1,5 +1,12 @@
-import pytest
+"""
+Test Suite for Baseline Storage
 
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 from store import baseline as bstore
 
 
@@ -17,7 +24,6 @@ async def test_baseline_save_load():
     await bstore.save(tid, metric, base2)
     l2 = await bstore.load(tid, metric)
     assert l2.mean == 2.0
-    # test compute_and_persist (just runs without error)
     ts = [0.0, 1.0, 2.0, 3.0, 4.0]
     vals = [1.0, 2.0, 1.5, 2.5, 1.0]
     result = await bstore.compute_and_persist(tid, metric, ts, vals)
