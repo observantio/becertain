@@ -1,0 +1,173 @@
+"""
+Entry point for the Be Certain Analysis Engine API server.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import sys
+import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Dict, Optional
+
+import httpx
+import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+from api.routes import router
+from datasources.data_config import DataSourceSettings
+from config import settings
+from datasources.exceptions import BackendStartupTimeout
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+)
+log = logging.getLogger(__name__)
+
+_backend_ready = False
+_backend_status: Dict[str, str] = {}
+
+
+async def wait_for(
+    name: str,
+    url: str,
+    timeout: float,
+    headers: Optional[Dict[str, str]] = None,
+    accept_status: tuple = (200, 204, 404),
+) -> None:
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    async with httpx.AsyncClient() as client:
+        while time.monotonic() < deadline:
+            attempt += 1
+            try:
+                resp = await client.get(url, headers=headers or {}, timeout=3.0)
+                if resp.status_code in accept_status:
+                    log.info("%s ready (attempt %d, status %d)", name, attempt, resp.status_code)
+                    return
+                log.debug("%s probe returned %d (attempt %d)", name, resp.status_code, attempt)
+            except Exception as exc:
+                log.debug("%s not reachable (attempt %d): %s", name, attempt, exc)
+            await asyncio.sleep(2)
+    raise BackendStartupTimeout(f"{name} did not become ready within {timeout}s")
+
+
+async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None:
+    global _backend_ready, _backend_status
+
+    scope = {"X-Scope-OrgID": tenant_id}
+    checks: list[tuple[str, str, dict, tuple[int, ...]]] = []
+
+    from config import (
+        LOGS_BACKEND_LOKI,
+        METRICS_BACKEND_MIMIR,
+        METRICS_BACKEND_VICTORIAMETRICS,
+        TRACES_BACKEND_TEMPO,
+    )
+
+    # logs backend
+    if settings.logs_backend == LOGS_BACKEND_LOKI:
+        checks.append((
+            LOGS_BACKEND_LOKI,
+            f"{settings.loki_url}/loki/api/v1/labels",
+            scope,
+            (200, 404),
+        ))
+
+    # metrics backend
+    if settings.metrics_backend == METRICS_BACKEND_MIMIR:
+        checks.append((
+            METRICS_BACKEND_MIMIR,
+            f"{settings.mimir_url}/prometheus/api/v1/query?query=vector%281%29",
+            scope,
+            (200,),
+        ))
+    elif settings.metrics_backend == METRICS_BACKEND_VICTORIAMETRICS:
+        checks.append((
+            METRICS_BACKEND_VICTORIAMETRICS,
+            f"{settings.victoriametrics_url}/api/v1/label/__name__/values",
+            scope,
+            (200,),
+        ))
+
+    # traces backend
+    if settings.traces_backend == TRACES_BACKEND_TEMPO:
+        checks.append((
+            TRACES_BACKEND_TEMPO,
+            f"{settings.tempo_url}/api/echo",
+            scope,
+            (200,),
+        ))
+
+    log.info("Backend readiness check starting (timeout=%ds) ...", settings.startup_timeout)
+
+    for name, url, hdrs, ok in checks:
+        _backend_status[name] = "waiting"
+
+    results = await asyncio.gather(
+        *[wait_for(name, url, settings.startup_timeout, headers=hdrs, accept_status=ok)
+          for name, url, hdrs, ok in checks],
+        return_exceptions=True,
+    )
+
+    all_ok = True
+    for (name, *_), result in zip(checks, results):
+        if isinstance(result, Exception):
+            log.error("%s failed readiness: %s", name, result)
+            _backend_status[name] = f"failed: {result}"
+            all_ok = False
+        else:
+            _backend_status[name] = "ready"
+
+    if all_ok:
+        _backend_ready = True
+        log.info("All backends ready — engine fully operational")
+    else:
+        log.warning("Some backends failed readiness — partial functionality available")
+        _backend_ready = True  
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    tenant_id = settings.default_tenant_id
+    asyncio.create_task(_wait_for_all_bg(settings, tenant_id))
+    yield
+
+
+app = FastAPI(
+    title="beCertain Analysis Engine",
+    description="AI-powered root cause analysis and anomaly detection over logs, metrics, and traces.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.include_router(router, prefix="/api/v1")
+
+
+@app.get("/api/v1/ready", tags=["health"], summary="Backend readiness probe")
+async def ready() -> JSONResponse:
+    code = 200 if _backend_ready else 503
+    return JSONResponse(
+        status_code=code,
+        content={"ready": _backend_ready, "backends": _backend_status},
+    )
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=4322,
+        log_level="info",
+        access_log=True,
+    )

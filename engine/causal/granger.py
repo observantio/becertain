@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+
+__test__ = False
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+
+@dataclass(frozen=True)
+class GrangerResult:
+    cause_metric: str
+    effect_metric: str
+    max_lag: int
+    f_statistic: float
+    p_value: float
+    is_causal: bool
+    strength: float
+
+
+def _ols(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, float]:
+    coeffs, residuals, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    predicted = X @ coeffs
+    ss_res = float(np.sum((y - predicted) ** 2))
+    return coeffs, ss_res
+
+
+def _lag_matrix(series: np.ndarray, max_lag: int) -> np.ndarray:
+    n = len(series) - max_lag
+    cols = [np.ones(n)]
+    for lag in range(1, max_lag + 1):
+        cols.append(series[max_lag - lag: max_lag - lag + n])
+    return np.column_stack(cols)
+
+
+def granger_pair_analysis(
+    cause_name: str,
+    cause_vals: List[float],
+    effect_name: str,
+    effect_vals: List[float],
+    max_lag: int = 3,
+    p_threshold: float = 0.05,
+) -> Optional[GrangerResult]:
+    if len(cause_vals) != len(effect_vals) or len(cause_vals) < max_lag + 10:
+        return None
+
+    cause = np.array(cause_vals, dtype=float)
+    effect = np.array(effect_vals, dtype=float)
+
+    n = len(effect) - max_lag
+    y = effect[max_lag:]
+
+    X_restricted = _lag_matrix(effect, max_lag)
+    _, ss_restricted = _ols(X_restricted, y)
+
+    cause_lags = np.column_stack([
+        cause[max_lag - lag: max_lag - lag + n]
+        for lag in range(1, max_lag + 1)
+    ])
+    X_unrestricted = np.hstack([X_restricted, cause_lags])
+    _, ss_unrestricted = _ols(X_unrestricted, y)
+
+    k = max_lag
+    denom_df = n - 2 * max_lag - 1
+    if denom_df <= 0 or ss_unrestricted == 0:
+        return None
+
+    f_stat = ((ss_restricted - ss_unrestricted) / k) / (ss_unrestricted / denom_df)
+    f_stat = float(f_stat)
+
+    from scipy import stats
+    p_value = float(1.0 - stats.f.cdf(f_stat, k, denom_df))
+
+    is_causal = p_value < p_threshold and f_stat > 1.0
+    strength = round(max(0.0, 1.0 - p_value) * min(1.0, f_stat / 10.0), 3)
+
+    return GrangerResult(
+        cause_metric=cause_name,
+        effect_metric=effect_name,
+        max_lag=max_lag,
+        f_statistic=round(f_stat, 4),
+        p_value=round(p_value, 6),
+        is_causal=is_causal,
+        strength=strength,
+    )
+
+
+def granger_multiple_pairs(
+    series_map: Dict[str, List[float]],
+    max_lag: int = 3,
+    p_threshold: float = 0.05,
+) -> List[GrangerResult]:
+    names = list(series_map.keys())
+    results: List[GrangerResult] = []
+
+    for i, cause in enumerate(names):
+        for j, effect in enumerate(names):
+            if i == j:
+                continue
+            result = granger_pair_analysis(
+                cause, series_map[cause],
+                effect, series_map[effect],
+                max_lag=max_lag,
+                p_threshold=p_threshold,
+            )
+            if result and result.is_causal:
+                results.append(result)
+
+    return sorted(results, key=lambda r: r.strength, reverse=True)

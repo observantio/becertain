@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import json
+import logging
+from typing import List, Optional
+
+from engine.baseline.compute import Baseline, compute
+from store.client import redis_get, redis_set
+from config import BASELINE_TTL
+from store import keys
+
+log = logging.getLogger(__name__)
+
+_BLEND_ALPHA = 0.3
+
+
+def _to_json(b: Baseline) -> str:
+    return json.dumps({
+        "mean": b.mean,
+        "std": b.std,
+        "lower": b.lower,
+        "upper": b.upper,
+        "seasonal_mean": b.seasonal_mean,
+        "sample_count": b.sample_count,
+    })
+
+
+def _from_json(data: str) -> Baseline:
+    d = json.loads(data)
+    return Baseline(
+        mean=d["mean"],
+        std=d["std"],
+        lower=d["lower"],
+        upper=d["upper"],
+        seasonal_mean=d.get("seasonal_mean"),
+        sample_count=d.get("sample_count", 0),
+    )
+
+
+def _blend(cached: Baseline, fresh: Baseline) -> Baseline:
+    a = 1.0 - _BLEND_ALPHA
+    blended_mean = a * cached.mean + _BLEND_ALPHA * fresh.mean
+    blended_std = a * cached.std + _BLEND_ALPHA * fresh.std
+    return Baseline(
+        mean=round(blended_mean, 6),
+        std=round(max(blended_std, 1e-9), 6),
+        lower=round(blended_mean - 3 * blended_std, 6),
+        upper=round(blended_mean + 3 * blended_std, 6),
+        seasonal_mean=fresh.seasonal_mean or cached.seasonal_mean,
+        sample_count=cached.sample_count + fresh.sample_count,
+    )
+
+
+async def load(tenant_id: str, metric_name: str) -> Optional[Baseline]:
+    try:
+        raw = await redis_get(keys.baseline(tenant_id, metric_name))
+        if raw:
+            return _from_json(raw)
+    except Exception as exc:
+        log.debug("Baseline load failed %s/%s: %s", tenant_id, metric_name, exc)
+    return None
+
+
+async def save(tenant_id: str, metric_name: str, baseline: Baseline) -> None:
+    try:
+        await redis_set(keys.baseline(tenant_id, metric_name), _to_json(baseline), ttl=BASELINE_TTL)
+    except Exception as exc:
+        log.debug("Baseline save failed %s/%s: %s", tenant_id, metric_name, exc)
+
+
+async def compute_and_persist(
+    tenant_id: str,
+    metric_name: str,
+    ts: List[float],
+    vals: List[float],
+    z_threshold: float = 3.0,
+) -> Baseline:
+    fresh = compute(ts, vals, z_threshold=z_threshold)
+    cached = await load(tenant_id, metric_name)
+
+    if cached and cached.sample_count >= 20:
+        result = _blend(cached, fresh)
+    else:
+        result = fresh
+
+    await save(tenant_id, metric_name, result)
+    return result

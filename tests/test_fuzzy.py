@@ -1,0 +1,139 @@
+import random
+import numpy as np
+import pytest
+
+from engine.causal.granger import granger_pair_analysis, granger_multiple_pairs
+from engine.anomaly.detection import detect
+from engine.forecast.trajectory import forecast
+from engine.forecast.degradation import analyze as degradation
+from engine.correlation.temporal import correlate, CorrelatedEvent
+from engine.causal.graph import CausalGraph
+from engine.topology.graph import DependencyGraph
+from engine.enums import Severity
+from api.responses import MetricAnomaly, LogBurst, ServiceLatency
+
+
+
+def random_anomaly(t):
+    mid = f"m{random.randint(0,5)}"
+    return MetricAnomaly(
+        metric_id=mid,
+        metric_name=mid,
+        timestamp=t,
+        value=random.random()*100,
+        change_type="spike",
+        z_score=random.random()*5,
+        mad_score=random.random()*5,
+        isolation_score=random.random(),
+        expected_range=(0, 100),
+        severity=random.choice(list(Severity)),
+        description="",
+    )
+
+
+def random_logburst(t):
+    return LogBurst(
+        window_start=t,
+        window_end=t + random.random()*10,
+        rate_per_second=random.random()*5,
+        baseline_rate=random.random()*2 + 0.1,
+        ratio=random.random()*5,
+        severity=random.choice(list(Severity)),
+    )
+
+
+def random_latency():
+    return ServiceLatency(
+        service=f"s{random.randint(0,3)}",
+        operation="op",
+        p50_ms=random.random()*100,
+        p95_ms=random.random()*200,
+        p99_ms=random.random()*300,
+        apdex=random.random(),
+        error_rate=random.random(),
+        sample_count=random.randint(1,10),
+        severity=random.choice(list(Severity)),
+    )
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_fuzzy_anomaly_detection(seed):
+    random.seed(seed)
+    length = random.randint(10, 50)
+    ts = list(range(length))
+    vals = [random.gauss(0, 1) for _ in range(length)]
+    # inject occasional anomaly
+    if length > 5:
+        vals[random.randrange(length)] += random.choice([10, -10])
+    anomalies = detect("m", ts, vals, contamination=0.1)
+    # ensure no crash and return list
+    assert isinstance(anomalies, list)
+    for a in anomalies:
+        assert hasattr(a, "change_type")
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_fuzzy_granger(seed):
+    random.seed(seed)
+    length = random.randint(15, 60)
+    # generate two correlated series sometimes
+    base = [random.random() for _ in range(length)]
+    other = [b + random.gauss(0, 0.5) for b in base]
+    res = granger_pair_analysis("a", base, "b", other, max_lag=3)
+    # result may be None or GrangerResult, but must not raise
+    if res:
+        assert res.cause_metric == "a"
+    allr = granger_multiple_pairs({"a": base, "b": other})
+    assert isinstance(allr, list)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_fuzzy_forecast_and_degradation(seed):
+    random.seed(seed)
+    length = random.randint(10, 60)
+    ts = list(range(length))
+    vals = [random.random()*100 + i*random.random() for i in ts]
+    f = forecast("m", ts, vals, threshold=50, horizon_seconds=10)
+    # forecast may return None or object
+    if f:
+        assert isinstance(f, object)
+    d = degradation("m", ts, vals)
+    assert (d is None) or hasattr(d, "degradation_rate")
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_fuzzy_correlation_and_causal(seed):
+    random.seed(seed)
+    length = random.randint(10, 30)
+    anomalies = [random_anomaly(i) for i in range(length)]
+    bursts = [random_logburst(i*random.random()*5) for i in range(length//5)]
+    sl = [random_latency() for _ in range(length//5)]
+    events = correlate(anomalies, bursts, sl, window_seconds=10)
+    assert isinstance(events, list)
+
+    # build random causal graph
+    g = CausalGraph()
+    for i in range(5):
+        a = f"m{i}"
+        b = f"m{(i+1)%5}"
+        g.add_edge(a, b, random.random())
+    # call some graph methods
+    _ = g.topological_sort()
+    _ = g.root_causes()
+    _ = g.simulate_intervention("m0", max_depth=3)
+    _ = g.find_common_causes("m1", "m2")
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_fuzzy_topology(seed):
+    random.seed(seed)
+    g = DependencyGraph()
+    services = [f"s{i}" for i in range(5)]
+    for _ in range(10):
+        a = random.choice(services)
+        b = random.choice(services)
+        g.add_call(a, b)
+    _ = g.blast_radius(random.choice(services), max_depth=3)
+    _ = g.find_upstream_roots(random.choice(services))
+    _ = g.critical_path(random.choice(services), random.choice(services))
+    _ = g.all_services()

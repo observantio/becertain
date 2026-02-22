@@ -1,0 +1,45 @@
+# datasources/config.py
+
+from typing import Literal, Optional
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
+from config import (
+    LOGS_BACKEND_LOKI,
+    METRICS_BACKEND_MIMIR,
+    METRICS_BACKEND_VICTORIAMETRICS,
+    TRACES_BACKEND_TEMPO,
+    BECERTAIN_LOGS_BACKEND,
+    BECERTAIN_LOGS_LOKI_URL,
+    BECERTAIN_LOGS_LOKI_LABELS,
+    BECERTAIN_LOGS_LOKI_TIMEOUT,
+    BECERTAIN_LOGS_LOKI_BATCH_SIZE,
+    BECERTAIN_METRICS_BACKEND,
+    BECERTAIN_METRICS_MIMIR_URL,
+    BECERTAIN_METRICS_VICTORIAMETRICS_URL,
+    BECERTAIN_TRACES_BACKEND,
+    BECERTAIN_TRACES_TEMPO_URL,
+    BECERTAIN_CONNECTOR_TIMEOUT,
+    BECERTAIN_STARTUP_TIMEOUT,
+)
+
+class DataSourceSettings(BaseSettings):
+    logs_backend: Literal[LOGS_BACKEND_LOKI] = BECERTAIN_LOGS_BACKEND
+    metrics_backend: Literal[METRICS_BACKEND_MIMIR, METRICS_BACKEND_VICTORIAMETRICS] = BECERTAIN_METRICS_BACKEND
+    traces_backend: Literal[TRACES_BACKEND_TEMPO] = BECERTAIN_TRACES_BACKEND
+
+    loki_url: str = BECERTAIN_LOGS_LOKI_URL
+    mimir_url: str = BECERTAIN_METRICS_MIMIR_URL
+    tempo_url: str = BECERTAIN_TRACES_TEMPO_URL
+    victoriametrics_url: Optional[str] = (
+        BECERTAIN_METRICS_VICTORIAMETRICS_URL or None
+    )
+
+    connector_timeout: int = BECERTAIN_CONNECTOR_TIMEOUT
+    startup_timeout: int = BECERTAIN_STARTUP_TIMEOUT
+
+    @field_validator("loki_url", "mimir_url", "tempo_url", "victoriametrics_url", mode="before")
+    @classmethod
+    def strip_trailing_slash(cls, v: str) -> str:
+        return str(v).rstrip("/") if v is not None else v
+
+    model_config = {"env_prefix": "BECERTAIN_", "extra": "ignore"}
