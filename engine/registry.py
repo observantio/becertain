@@ -11,7 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from engine.enums import Signal
 from store import events as event_store, weights as weight_store
@@ -35,7 +35,7 @@ class TenantState:
     __slots__ = ("_weights", "_update_count")
 
     def __init__(self, weights: Dict[Signal, float], update_count: int) -> None:
-        self._weights: Dict[Signal, float] = dict(weights)
+        self._weights: Dict[Signal, float] = _coerce_weights(weights)
         self._update_count = update_count
 
     @property
@@ -78,7 +78,7 @@ class TenantState:
             self._weights[k] = self._weights[k] / total
 
     def reset(self) -> None:
-        self._weights = dict(DEFAULT_WEIGHTS)
+        self._weights = _coerce_weights(DEFAULT_WEIGHTS)
         self._update_count = 0
 
 
@@ -95,11 +95,18 @@ class TenantRegistry:
                     update_count=stored.get("update_count", 0),
                 )
             else:
-                state = TenantState(weights=dict(DEFAULT_WEIGHTS), update_count=0)
+                state = TenantState(weights=_coerce_weights(DEFAULT_WEIGHTS), update_count=0)
             self._states[tenant_id] = state
         return self._states[tenant_id]
 
-    async def update_weight(self, tenant_id: str, signal: Signal, was_correct: bool) -> TenantState:
+    async def update_weight(
+        self, tenant_id: str, signal: Union[Signal, str], was_correct: bool
+    ) -> TenantState:
+        if isinstance(signal, str):
+            try:
+                signal = Signal(signal)
+            except ValueError:
+                raise
         state = await self.get_state(tenant_id)
         state.update_weight(signal, was_correct)
         await weight_store.save(tenant_id, state.weights_serializable, state.update_count)

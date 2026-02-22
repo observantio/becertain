@@ -32,18 +32,19 @@ async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> Dic
             detail=f"Unknown signal '{signal}'. Valid values: {[s.value for s in Signal]}",
         )
     state = await safe_call(get_registry().update_weight(tenant_id, sig, was_correct), 500)
-    return {"updated_weights": state.weights, "update_count": state.update_count}
+    # weights_serializable always uses plain string keys suitable for JSON output
+    return {"updated_weights": state.weights_serializable, "update_count": state.update_count}
 
 
 @router.get("/ml/weights", summary="Current adaptive signal weights for a tenant")
 @handle_exceptions
 async def get_signal_weights(tenant_id: str) -> Dict[str, Any]:
     state = await safe_call(get_registry().get_state(tenant_id), 500)
-    return {"weights": state.weights, "update_count": state.update_count}
+    return {"weights": state.weights_serializable, "update_count": state.update_count}
 
 
 @router.post("/ml/weights/reset", summary="Reset adaptive weights to defaults for a tenant")
 @handle_exceptions
 async def reset_signal_weights(tenant_id: str) -> Dict[str, Any]:
     state = await safe_call(get_registry().reset_weights(tenant_id), 500)
-    return {"weights": state.weights, "update_count": state.update_count}
+    return {"weights": state.weights_serializable, "update_count": state.update_count}
