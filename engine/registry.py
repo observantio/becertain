@@ -6,15 +6,12 @@ from typing import Dict, List
 from engine.enums import Signal
 from store import events as event_store, weights as weight_store
 from engine.events.registry import DeploymentEvent
+from config import DEFAULT_WEIGHTS, REGISTRY_ALPHA
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_WEIGHTS: Dict[str, float] = {
-    Signal.metrics: 0.30,
-    Signal.logs:    0.35,
-    Signal.traces:  0.35,
-}
-_ALPHA = 0.2
+# default weights and alpha come from config for consistency
+
 
 
 class TenantState:
@@ -35,7 +32,7 @@ class TenantState:
     def update_weight(self, signal: Signal, was_correct: bool) -> None:
         reward = 1.0 if was_correct else 0.0
         current = self._weights.get(signal, 1.0 / 3)
-        self._weights[signal] = round((1 - _ALPHA) * current + _ALPHA * reward, 4)
+        self._weights[signal] = round((1 - REGISTRY_ALPHA) * current + REGISTRY_ALPHA * reward, 4)
         self._normalize()
         self._update_count += 1
 
@@ -58,7 +55,7 @@ class TenantState:
             self._weights[k] = round(self._weights[k] / total, 4)
 
     def reset(self) -> None:
-        self._weights = dict(_DEFAULT_WEIGHTS)
+        self._weights = dict(DEFAULT_WEIGHTS)
         self._update_count = 0
 
 
@@ -75,7 +72,7 @@ class TenantRegistry:
                     update_count=stored.get("update_count", 0),
                 )
             else:
-                state = TenantState(weights=dict(_DEFAULT_WEIGHTS), update_count=0)
+                state = TenantState(weights=dict(DEFAULT_WEIGHTS), update_count=0)
             self._states[tenant_id] = state
         return self._states[tenant_id]
 

@@ -1,5 +1,16 @@
+"""
+Granger causality test result storage and retrieval logic.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Dict, List
@@ -55,9 +66,10 @@ async def save_and_merge(tenant_id: str, service: str, fresh_results: list) -> L
 
 
 async def load_all_services(tenant_id: str, services: List[str]) -> List[dict]:
+    per_service = await asyncio.gather(*[load(tenant_id, svc) for svc in services])
     all_results: Dict[str, dict] = {}
-    for svc in services:
-        for r in await load(tenant_id, svc):
+    for svc_results in per_service:
+        for r in svc_results:
             pk = _pair_key(r["cause_metric"], r["effect_metric"])
             if pk not in all_results or r["strength"] > all_results[pk]["strength"]:
                 all_results[pk] = r

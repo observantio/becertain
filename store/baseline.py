@@ -1,3 +1,13 @@
+"""
+Baseline computation and persistence logic.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,13 +16,10 @@ from typing import List, Optional
 
 from engine.baseline.compute import Baseline, compute
 from store.client import redis_get, redis_set
-from config import BASELINE_TTL
+from config import BASELINE_TTL, BLEND_ALPHA
 from store import keys
 
 log = logging.getLogger(__name__)
-
-_BLEND_ALPHA = 0.3
-
 
 def _to_json(b: Baseline) -> str:
     return json.dumps({
@@ -38,9 +45,9 @@ def _from_json(data: str) -> Baseline:
 
 
 def _blend(cached: Baseline, fresh: Baseline) -> Baseline:
-    a = 1.0 - _BLEND_ALPHA
-    blended_mean = a * cached.mean + _BLEND_ALPHA * fresh.mean
-    blended_std = a * cached.std + _BLEND_ALPHA * fresh.std
+    a = 1.0 - BLEND_ALPHA
+    blended_mean = a * cached.mean + BLEND_ALPHA * fresh.mean
+    blended_std = a * cached.std + BLEND_ALPHA * fresh.std
     return Baseline(
         mean=round(blended_mean, 6),
         std=round(max(blended_std, 1e-9), 6),
@@ -78,10 +85,6 @@ async def compute_and_persist(
     fresh = compute(ts, vals, z_threshold=z_threshold)
     cached = await load(tenant_id, metric_name)
 
-    if cached and cached.sample_count >= 20:
-        result = _blend(cached, fresh)
-    else:
-        result = fresh
-
+    result = _blend(cached, fresh) if cached and cached.sample_count >= 20 else fresh
     await save(tenant_id, metric_name, result)
     return result

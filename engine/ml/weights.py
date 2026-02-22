@@ -4,19 +4,15 @@ from dataclasses import dataclass, field
 from typing import Dict
 
 from engine.enums import Signal
+from config import DEFAULT_WEIGHTS, REGISTRY_ALPHA
 
-
-_DEFAULT_WEIGHTS: Dict[str, float] = {
-    Signal.metrics: 0.30,
-    Signal.logs:    0.35,
-    Signal.traces:  0.35,
-}
+# use the central defaults defined in config
 
 
 @dataclass
 class SignalWeights:
-    weights: Dict[str, float] = field(default_factory=lambda: dict(_DEFAULT_WEIGHTS))
-    alpha: float = 0.2
+    weights: Dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    alpha: float = REGISTRY_ALPHA
     update_count: int = 0
 
     def update(self, signal: Signal, was_correct: bool) -> None:
@@ -50,7 +46,7 @@ class SignalWeights:
         )
 
     def reset(self) -> None:
-        self.weights = dict(_DEFAULT_WEIGHTS)
+        self.weights = dict(DEFAULT_WEIGHTS)
         self.update_count = 0
 
 

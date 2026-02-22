@@ -1,10 +1,20 @@
+"""
+Key-value store access layer with Redis and in-memory fallback.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import hashlib
 
 
 def _slug(value: str) -> str:
-    return hashlib.md5(value.encode()).hexdigest()[:12]
+    return hashlib.md5(value.encode()).hexdigest()
 
 
 def baseline(tenant_id: str, metric_name: str) -> str:

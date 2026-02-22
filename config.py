@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import os
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
 from pydantic_settings import BaseSettings
 
@@ -19,6 +19,7 @@ BASELINE_TTL: int = int(os.getenv("BASELINE_TTL", "86400"))
 GRANGER_TTL: int = int(os.getenv("GRANGER_TTL", "604800")) 
 EVENTS_TTL: int = int(os.getenv("EVENTS_TTL", "2592000"))  
 WEIGHTS_TTL: int = int(os.getenv("WEIGHTS_TTL", "604800"))  # one week by default
+BLEND_ALPHA: float = float(os.getenv("BLEND_ALPHA", "0.1"))  # interpolation factor for baseline blending
 
 LOGS_BACKEND_LOKI = "loki"
 METRICS_BACKEND_MIMIR = "mimir"
@@ -58,6 +59,17 @@ SLO_TOTAL_QUERY_TEMPLATE = (
 
 DATASOURCE_TIMEOUT = 30  
 HEALTH_PATH = "/ready"
+
+# registry defaults
+from engine.enums import Signal
+
+DEFAULT_WEIGHTS: Dict[str, float] = {
+    Signal.metrics: 0.30,
+    Signal.logs: 0.35,
+    Signal.traces: 0.35,
+}
+
+REGISTRY_ALPHA: float = float(os.getenv("REGISTRY_ALPHA", "0.2"))  # smoothing constant used in weight updates
 
 class Settings(BaseSettings):
     logs_backend: str = BECERTAIN_LOGS_BACKEND

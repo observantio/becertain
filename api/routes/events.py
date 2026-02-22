@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from engine.events.registry import DeploymentEvent
 from api.routes.exception import handle_exceptions
+from api.routes.common import get_provider
 from engine.registry import get_registry
 from api.requests import DeploymentEventRequest
 
