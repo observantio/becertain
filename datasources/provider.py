@@ -1,4 +1,12 @@
-# datasource/provider.py
+"""
+Provider for data source connectors to query logs, metrics, and traces based on tenant configuration.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 
 from typing import Dict, Any, Optional
 from .data_config import DataSourceSettings
@@ -6,11 +14,6 @@ from .factory import DataSourceFactory
 from .exceptions import DataSourceError
 
 class DataSourceProvider:
-    """
-    Unified provider for logs, metrics, and traces.
-    Wraps vendor connectors and enforces tenant isolation.
-    """
-
     def __init__(self, tenant_id: str, settings: DataSourceSettings):
         self.tenant_id = tenant_id
         self.settings = settings

@@ -56,6 +56,9 @@ SLO_TOTAL_QUERY_TEMPLATE = (
     'sum(rate(http_requests_total{{service="{service}"}}[5m]))'
 )
 
+DATASOURCE_TIMEOUT = 30  
+HEALTH_PATH = "/ready"
+
 class Settings(BaseSettings):
     logs_backend: str = BECERTAIN_LOGS_BACKEND
     loki_url: str = BECERTAIN_LOGS_LOKI_URL

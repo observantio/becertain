@@ -1,0 +1,60 @@
+"""
+Shared helper functions for data source connectors.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+import httpx
+
+from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
+
+
+async def fetch_json(
+    url: str,
+    params: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 30,
+    invalid_msg: str = "query failed",
+    timeout_msg: str = "query timed out",
+    unavailable_msg: str = "Cannot reach data source at",
+) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        raise InvalidQuery(f"{invalid_msg} [{e.response.status_code}]: {e.response.text}") from e
+    except httpx.TimeoutException as e:
+        raise QueryTimeout(timeout_msg) from e
+    except httpx.RequestError as e:
+        raise DataSourceUnavailable(f"{unavailable_msg} {url}") from e
+
+
+async def fetch_text(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 30,
+    invalid_msg: str = "request failed",
+    timeout_msg: str = "request timed out",
+    unavailable_msg: str = "Cannot reach data source at",
+) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.text
+    except httpx.HTTPStatusError as e:
+        raise InvalidQuery(f"{invalid_msg} [{e.response.status_code}]: {e.response.text}") from e
+    except httpx.TimeoutException as e:
+        raise QueryTimeout(timeout_msg) from e
+    except httpx.RequestError as e:
+        raise DataSourceUnavailable(f"{unavailable_msg} {url}") from e
