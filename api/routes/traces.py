@@ -1,31 +1,36 @@
+"""
+Trace analysis routes for detecting anomalous latency patterns and service degradations in distributed systems.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import traces
 from api.requests import TraceRequest
 from api.responses import ServiceLatency
+from config import DEFAULT_SERVICE_NAME
 
 router = APIRouter(tags=["Traces"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
-
 @router.post("/anomalies/traces", response_model=List[ServiceLatency])
+@handle_exceptions
 async def trace_anomalies(req: TraceRequest) -> List[ServiceLatency]:
     filters: Dict[str, Any] = {}
-    if req.service:
-        filters["service.name"] = req.service
-    try:
-        raw = await _provider(req.tenant_id).query_traces(
+    filters["service.name"] = req.service or DEFAULT_SERVICE_NAME
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_traces(
             filters=filters, start=req.start, end=req.end
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
     return traces.analyze(raw, req.apdex_threshold_ms)

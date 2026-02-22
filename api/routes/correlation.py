@@ -1,12 +1,21 @@
+"""
+Correlation routes for quick cross-signal temporal correlation without full RCA.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import anomaly, logs
 from engine.constants import DEFAULT_METRIC_QUERIES
 from engine.correlation import correlate, link_logs_to_metrics
@@ -16,16 +25,14 @@ from api.requests import CorrelateRequest
 router = APIRouter(tags=["Correlation"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
 
 @router.post("/correlate", summary="Cross-signal temporal correlation without full RCA")
+@handle_exceptions
 async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
     log_query = req.log_query or (
         '{service=~"' + "|".join(req.services) + '"}' if req.services else '{job=~".+"}'
     )
-    provider = _provider(req.tenant_id)
+    provider = get_provider(req.tenant_id)
     all_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
     logs_raw, metrics_raw = await asyncio.gather(

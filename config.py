@@ -46,6 +46,16 @@ BECERTAIN_STARTUP_TIMEOUT = int(os.getenv("BECERTAIN_STARTUP_TIMEOUT", "120"))
 BECERTAIN_DEFAULT_TENANT_ID = os.getenv("BECERTAIN_DEFAULT_TENANT_ID", "Av45ZchZsQdKjN8XyG")
 
 
+DEFAULT_SERVICE_NAME = "default_service"
+
+
+SLO_ERROR_QUERY_TEMPLATE = (
+    'sum(rate(http_requests_total{{service="{service}",status=~"5.."}}[5m]))'
+)
+SLO_TOTAL_QUERY_TEMPLATE = (
+    'sum(rate(http_requests_total{{service="{service}"}}[5m]))'
+)
+
 class Settings(BaseSettings):
     logs_backend: str = BECERTAIN_LOGS_BACKEND
     loki_url: str = BECERTAIN_LOGS_LOKI_URL
@@ -64,6 +74,11 @@ class Settings(BaseSettings):
 
     connector_timeout: int = BECERTAIN_CONNECTOR_TIMEOUT
     startup_timeout: int = BECERTAIN_STARTUP_TIMEOUT
+
+    # slo query templates; can be overridden via BECERTAIN_SLO_ERROR_QUERY_TEMPLATE
+    # and BECERTAIN_SLO_TOTAL_QUERY_TEMPLATE environment vars
+    slo_error_query_template: str = SLO_ERROR_QUERY_TEMPLATE
+    slo_total_query_template: str = SLO_TOTAL_QUERY_TEMPLATE
 
     # default tenant (used by main and tests)
     default_tenant_id: str = BECERTAIN_DEFAULT_TENANT_ID
@@ -85,4 +100,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
 

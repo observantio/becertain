@@ -1,11 +1,20 @@
+"""
+Metric analysis routes for detecting anomalies and changepoints in time series data.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import anomaly
 from engine.baseline import compute as baseline_compute
 from engine.changepoint import detect as changepoint_detect, ChangePoint
@@ -14,19 +23,17 @@ from api.responses import MetricAnomaly
 
 router = APIRouter(tags=["Metrics"])
 
-
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
+# provider helper moved to api.routes.common
 
 
 @router.post("/anomalies/metrics", response_model=List[MetricAnomaly])
+@handle_exceptions
 async def metric_anomalies(req: MetricRequest) -> List[MetricAnomaly]:
-    try:
-        raw = await _provider(req.tenant_id).query_metrics(
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_metrics(
             query=req.query, start=req.start, end=req.end, step=req.step
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
 
     results = []
     for metric, ts, vals in anomaly.iter_series(raw):
@@ -35,13 +42,13 @@ async def metric_anomalies(req: MetricRequest) -> List[MetricAnomaly]:
 
 
 @router.post("/changepoints", response_model=List[ChangePoint])
+@handle_exceptions
 async def metric_changepoints(req: ChangepointRequest) -> List[ChangePoint]:
-    try:
-        raw = await _provider(req.tenant_id).query_metrics(
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_metrics(
             query=req.query, start=req.start, end=req.end, step=req.step
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
 
     results: List[ChangePoint] = []
     for _, ts, vals in anomaly.iter_series(raw):

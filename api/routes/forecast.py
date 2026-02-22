@@ -1,11 +1,20 @@
+"""
+Forecast routes for quick cross-signal temporal correlation without full RCA.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import anomaly
 from engine.constants import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS
 from engine.fetcher import fetch_metrics
@@ -15,19 +24,16 @@ from api.requests import CorrelateRequest
 router = APIRouter(tags=["Forecast"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
 
 @router.post("/forecast/trajectory", summary="Time-to-failure and degradation trajectory per metric")
+@handle_exceptions
 async def metric_trajectory(req: CorrelateRequest) -> Dict[str, Any]:
-    provider = _provider(req.tenant_id)
+    provider = get_provider(req.tenant_id)
     all_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
-    try:
-        metrics_raw = await fetch_metrics(provider, all_queries, req.start, req.end, req.step)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    metrics_raw = await safe_call(
+        fetch_metrics(provider, all_queries, req.start, req.end, req.step)
+    )
 
     results: List[Dict[str, Any]] = []
     for resp in metrics_raw:

@@ -1,11 +1,21 @@
+"""
+Log analysis routes for detecting anomalous patterns and bursts in log data.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+
 from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call, to_nanoseconds
+from api.routes.exception import handle_exceptions
 from engine import logs
 from api.requests import LogRequest
 from api.responses import LogBurst, LogPattern
@@ -13,31 +23,24 @@ from api.responses import LogBurst, LogPattern
 router = APIRouter(tags=["Logs"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
-
-def _ns(ts: int) -> int:
-    return ts * 1_000_000_000
-
 
 @router.post("/anomalies/logs/patterns", response_model=List[LogPattern])
+@handle_exceptions
 async def log_patterns(req: LogRequest) -> List[LogPattern]:
-    try:
-        raw = await _provider(req.tenant_id).query_logs(
-            query=req.query, start=_ns(req.start), end=_ns(req.end)
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_logs(
+            query=req.query, start=to_nanoseconds(req.start), end=to_nanoseconds(req.end)
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
     return logs.analyze(raw)
 
 
 @router.post("/anomalies/logs/bursts", response_model=List[LogBurst])
+@handle_exceptions
 async def log_bursts(req: LogRequest) -> List[LogBurst]:
-    try:
-        raw = await _provider(req.tenant_id).query_logs(
-            query=req.query, start=_ns(req.start), end=_ns(req.end)
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_logs(
+            query=req.query, start=to_nanoseconds(req.start), end=to_nanoseconds(req.end)
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
     return logs.detect_bursts(raw)

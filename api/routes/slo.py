@@ -1,43 +1,43 @@
+"""
+SLO routes for detecting metric anomalies and changepoints based on user-defined sensitivity and thresholds.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import anomaly
 from engine.slo import evaluate as slo_evaluate, remaining_minutes
 from api.requests import SloRequest
+from config import settings
 
 router = APIRouter(tags=["SLO"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
 
 @router.post("/slo/burn", summary="SLO error budget burn rate")
+@handle_exceptions
 async def slo_burn(req: SloRequest) -> Dict[str, Any]:
-    error_q = req.error_query or (
-        f'sum(rate(http_requests_total{{service="{req.service}",status=~"5.."}}[5m]))'
-    )
-    total_q = req.total_query or (
-        f'sum(rate(http_requests_total{{service="{req.service}"}}[5m]))'
-    )
-    provider = _provider(req.tenant_id)
+    error_q = req.error_query or settings.slo_error_query_template.format(service=req.service)
+    total_q = req.total_query or settings.slo_total_query_template.format(service=req.service)
+    provider = get_provider(req.tenant_id)
 
-    err_raw, tot_raw = await asyncio.gather(
-        provider.query_metrics(query=error_q, start=req.start, end=req.end, step=req.step),
-        provider.query_metrics(query=total_q, start=req.start, end=req.end, step=req.step),
-        return_exceptions=True,
+    err_raw = await safe_call(
+        provider.query_metrics(query=error_q, start=req.start, end=req.end, step=req.step)
     )
-
-    if isinstance(err_raw, Exception):
-        raise HTTPException(status_code=502, detail=str(err_raw))
-    if isinstance(tot_raw, Exception):
-        raise HTTPException(status_code=502, detail=str(tot_raw))
+    tot_raw = await safe_call(
+        provider.query_metrics(query=total_q, start=req.start, end=req.end, step=req.step)
+    )
 
     err_series = list(anomaly.iter_series(err_raw))
     tot_series = list(anomaly.iter_series(tot_raw))

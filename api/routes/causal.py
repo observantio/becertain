@@ -1,11 +1,20 @@
+"""
+Causal inference routes for root cause analysis.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine import anomaly
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
 from engine.constants import DEFAULT_METRIC_QUERIES
@@ -13,23 +22,21 @@ from engine.fetcher import fetch_metrics
 from engine.registry import get_registry
 from store import granger as granger_store
 from api.requests import CorrelateRequest, AnalyzeRequest
+from config import DEFAULT_SERVICE_NAME
 
 router = APIRouter(tags=["Causal"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
 
 @router.post("/causal/granger", summary="Granger causality between metrics (warm model via Redis)")
+@handle_exceptions
 async def granger_causality(req: CorrelateRequest) -> Dict[str, Any]:
-    provider = _provider(req.tenant_id)
+    provider = get_provider(req.tenant_id)
     all_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
-    try:
-        metrics_raw = await fetch_metrics(provider, all_queries, req.start, req.end, req.step)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    metrics_raw = await safe_call(
+        fetch_metrics(provider, all_queries, req.start, req.end, req.step)
+    )
 
     series_map: Dict[str, list] = {}
     for resp in metrics_raw:
@@ -37,7 +44,7 @@ async def granger_causality(req: CorrelateRequest) -> Dict[str, Any]:
             series_map[metric_name] = vals
 
     fresh_results = test_all_pairs(series_map)
-    service_label = req.services[0] if req.services else "global"
+    service_label = req.services[0] if req.services else DEFAULT_SERVICE_NAME
     merged = await granger_store.save_and_merge(req.tenant_id, service_label, fresh_results)
 
     causal_graph = CausalGraph()
@@ -58,6 +65,7 @@ async def granger_causality(req: CorrelateRequest) -> Dict[str, Any]:
 
 
 @router.post("/causal/bayesian", summary="Bayesian posterior over RCA categories given observed signals")
+@handle_exceptions
 async def bayesian_rca(req: AnalyzeRequest) -> Dict[str, Any]:
     deployment_events = await get_registry().events_in_window(req.tenant_id, req.start, req.end)
     scores = bayesian_score(

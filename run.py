@@ -109,10 +109,11 @@ CASES: list[Case] = [
          body=base({"service": "payment-service", "target_availability": 0.999})),
     Case("99.5% target", "POST", "/slo/burn", section="SLO",
          body=base({"service": "payment-service", "target_availability": 0.995})),
+    
     Case("custom queries", "POST", "/slo/burn", section="SLO",
          body=base({"service": "payment-service", "target_availability": 0.999,
-                    "success_query": "sum(rate(traces_spanmetrics_calls_total[5m]))",
-                    "total_query": "sum(rate(traces_spanmetrics_calls_total[5m]))", })),
+                    "error_query": "sum(rate(traces_spanmetrics_calls_total[5m]))",
+                    "total_query": "sum(rate(traces_spanmetrics_calls_total[5m]))"})),
     Case("24h window SLO", "POST", "/slo/burn", section="SLO",
          body={**base(), "start": H24, "service": "payment-service", "target_availability": 0.999}),
 

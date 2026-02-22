@@ -1,29 +1,35 @@
+"""
+Topology analysis routes for computing service dependency blast radius and upstream/downstream relationships from trace data.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from datasources.data_config import DataSourceSettings
-from datasources.provider import DataSourceProvider
+from api.routes.common import get_provider, safe_call
+from api.routes.exception import handle_exceptions
 from engine.topology import DependencyGraph
 from api.requests import TopologyRequest
 
 router = APIRouter(tags=["Topology"])
 
 
-def _provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-
 
 @router.post("/topology/blast-radius", summary="Service dependency blast radius from traces")
+@handle_exceptions
 async def blast_radius(req: TopologyRequest) -> Dict[str, Any]:
-    try:
-        raw = await _provider(req.tenant_id).query_traces(
+    raw = await safe_call(
+        get_provider(req.tenant_id).query_traces(
             filters={}, start=req.start, end=req.end
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    )
 
     graph = DependencyGraph()
     if isinstance(raw, list):
