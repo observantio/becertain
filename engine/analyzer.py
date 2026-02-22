@@ -1,3 +1,13 @@
+"""
+Analyzer Module for Root Cause Analysis and Correlation of Anomalies
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,9 +17,10 @@ from typing import Dict, List, Tuple
 
 from datasources.provider import DataSourceProvider
 from engine import anomaly, logs, rca, traces
+from engine.baseline import compute as baseline_compute
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
 from engine.changepoint import detect as changepoint_detect, ChangePoint
-from engine.constants import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS, SLO_ERROR_QUERY, SLO_TOTAL_QUERY
+from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS, SLO_ERROR_QUERY, SLO_TOTAL_QUERY
 from engine.correlation import correlate, link_logs_to_metrics
 from engine.dedup import group_metric_anomalies
 from engine.events.registry import DeploymentEvent, EventRegistry
@@ -38,15 +49,15 @@ def _overall_severity(*groups) -> Severity:
 
 def _summary(report: AnalysisReport) -> str:
     parts = []
+
     if report.metric_anomalies:
-        groups = group_metric_anomalies(report.metric_anomalies)
-        parts.append(f"{len(groups)} metric anomaly group(s)")
+        parts.append(f"{len(group_metric_anomalies(report.metric_anomalies))} metric anomaly group(s)")
     if report.log_bursts:
         parts.append(f"{len(report.log_bursts)} log burst(s)")
     if report.log_patterns:
-        hi = [p for p in report.log_patterns if p.severity.weight() >= 3]
-        if hi:
-            parts.append(f"{sum(p.count for p in hi)} high/critical log events")
+        hi_count = sum(p.count for p in report.log_patterns if p.severity.weight() >= 3)
+        if hi_count:
+            parts.append(f"{hi_count} high/critical log events")
     if report.service_latency:
         parts.append(f"{len(report.service_latency)} service(s) degraded")
     if report.error_propagation:
@@ -56,88 +67,119 @@ def _summary(report: AnalysisReport) -> str:
     if report.change_points:
         parts.append(f"{len(report.change_points)} change point(s)")
     if report.forecasts:
-        critical = [f for f in report.forecasts if f.severity.weight() >= 4]
+        critical = sum(1 for f in report.forecasts if f.severity.weight() >= 4)
         if critical:
-            parts.append(f"{len(critical)} imminent breach(es) predicted")
+            parts.append(f"{critical} imminent breach(es) predicted")
     if report.degradation_signals:
         parts.append(f"{len(report.degradation_signals)} degrading metric(s)")
+
     if not parts:
         return "No anomalies detected in the analysis window."
+
     top = f" Top: {report.root_causes[0].hypothesis[:120]}..." if report.root_causes else ""
     return f"[{report.overall_severity.value.upper()}] {' | '.join(parts)}.{top}"
+
+
+def _to_root_cause_model(rc) -> RootCauseModel:
+    if dataclasses.is_dataclass(rc):
+        return RootCauseModel(**dataclasses.asdict(rc))
+    if isinstance(rc, dict):
+        return RootCauseModel(**rc)
+    return RootCauseModel.model_validate(rc)
+
+
+def _build_compat_registry(deployment_events: list) -> EventRegistry:
+    registry = EventRegistry()
+    for e in deployment_events:
+        registry.register(DeploymentEvent(
+            service=e["service"],
+            timestamp=e["timestamp"],
+            version=e["version"],
+            author=e.get("author", ""),
+            environment=e.get("environment", "production"),
+            source=e.get("source", "redis"),
+            metadata=e.get("metadata", {}),
+        ))
+    return registry
+
+
+async def _process_metrics(
+    provider: DataSourceProvider,
+    req: AnalyzeRequest,
+    all_metric_queries: List[str],
+    z_threshold: float,
+) -> Tuple[list, List[ChangePoint], list, list, Dict[str, List[float]]]:
+    metrics_raw = await fetch_metrics(provider, all_metric_queries, req.start, req.end, req.step)
+
+    series_list: List[Tuple[str, str, list, list]] = [
+        (query_string, metric_name, ts, vals)
+        for query_string, resp in metrics_raw
+        for metric_name, ts, vals in anomaly.iter_series(resp)
+    ]
+
+    baselines = await asyncio.gather(
+        *[
+            baseline_store.compute_and_persist(req.tenant_id, name, ts, vals, z_threshold)
+            for _, name, ts, vals in series_list
+        ],
+        return_exceptions=True,
+    )
+
+    metric_anomalies, change_points, forecasts, degradation_signals = [], [], [], []
+    series_map: Dict[str, List[float]] = {}
+
+    for (query_string, metric_name, ts, vals), baseline in zip(series_list, baselines):
+        if isinstance(baseline, Exception):
+            baseline = baseline_compute(ts, vals, z_threshold=z_threshold)
+
+        metric_anomalies.extend(anomaly.detect(metric_name, ts, vals, req.sensitivity))
+        change_points.extend(changepoint_detect(ts, vals, threshold_sigma=baseline.std or z_threshold))
+        series_map[metric_name] = vals
+
+        threshold = next((v for k, v in FORECAST_THRESHOLDS.items() if k in query_string), None)
+        if threshold:
+            f = forecast(metric_name, ts, vals, threshold, horizon_seconds=req.forecast_horizon_seconds)
+            if f:
+                forecasts.append(f)
+
+        deg = analyze_degradation(metric_name, ts, vals)
+        if deg:
+            degradation_signals.append(deg)
+
+    return metric_anomalies, change_points, forecasts, degradation_signals, series_map
 
 
 async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisReport:
     registry = get_registry()
     tenant_id = req.tenant_id
+    primary_service = req.services[0] if req.services else None
 
     log_query = req.log_query or (
         '{service=~"' + "|".join(req.services) + '"}' if req.services else '{job=~".+"}'
     )
-    trace_filters = {"service.name": req.services[0]} if req.services else {}
+    trace_filters = {"service.name": primary_service} if primary_service else {}
     all_metric_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
+    z_threshold = 1.0 + req.sensitivity * 0.67 if req.sensitivity else 3.0
 
-    (
-        logs_raw,
-        traces_raw,
-        metrics_raw,
-        slo_errors_raw,
-        slo_total_raw,
-    ) = await asyncio.gather(
+    logs_raw, traces_raw, slo_errors_raw, slo_total_raw = await asyncio.gather(
         provider.query_logs(
             query=log_query,
             start=req.start * 1_000_000_000,
             end=req.end * 1_000_000_000,
         ),
         provider.query_traces(filters=trace_filters, start=req.start, end=req.end),
-        fetch_metrics(provider, all_metric_queries, req.start, req.end, req.step),
         provider.query_metrics(query=SLO_ERROR_QUERY, start=req.start, end=req.end, step=req.step),
         provider.query_metrics(query=SLO_TOTAL_QUERY, start=req.start, end=req.end, step=req.step),
         return_exceptions=True,
     )
 
-    metric_anomalies = []
-    change_points: List[ChangePoint] = []
-    forecasts = []
-    degradation_signals = []
-    series_map: Dict[str, List[float]] = {}
-    z_threshold = 1.0 + (req.sensitivity or 3.0) * 0.67 if req.sensitivity else 3.0
-
-    if not isinstance(metrics_raw, Exception):
-        series_list: List[Tuple[str, str, list, list]] = []
-        baseline_tasks = []
-
-        for query_string, resp in metrics_raw:
-            for metric_name, ts, vals in anomaly.iter_series(resp):
-                series_list.append((query_string, metric_name, ts, vals))
-                baseline_tasks.append(
-                    baseline_store.compute_and_persist(tenant_id, metric_name, ts, vals, z_threshold)
-                )
-
-        baselines = await asyncio.gather(*baseline_tasks, return_exceptions=True)
-
-        for (query_string, metric_name, ts, vals), baseline in zip(series_list, baselines):
-            if isinstance(baseline, Exception):
-                from engine.baseline import compute as baseline_compute
-                baseline = baseline_compute(ts, vals, z_threshold=z_threshold)
-
-            metric_anomalies.extend(anomaly.detect(metric_name, ts, vals, req.sensitivity))
-            change_points.extend(
-                changepoint_detect(ts, vals, threshold_sigma=baseline.std or z_threshold)
-            )
-            series_map[metric_name] = vals
-
-            threshold = next(
-                (v for k, v in FORECAST_THRESHOLDS.items() if k in query_string), None
-            )
-            if threshold:
-                f = forecast(metric_name, ts, vals, threshold, horizon_seconds=req.forecast_horizon_seconds)
-                if f:
-                    forecasts.append(f)
-
-            deg = analyze_degradation(metric_name, ts, vals)
-            if deg:
-                degradation_signals.append(deg)
+    try:
+        metric_anomalies, change_points, forecasts, degradation_signals, series_map = (
+            await _process_metrics(provider, req, all_metric_queries, z_threshold)
+        )
+    except Exception as exc:
+        log.warning("Metrics unavailable: %s", exc)
+        metric_anomalies, change_points, forecasts, degradation_signals, series_map = [], [], [], [], {}
 
     log_bursts, log_patterns = [], []
     if not isinstance(logs_raw, Exception):
@@ -155,14 +197,14 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     else:
         log.warning("Traces unavailable: %s", traces_raw)
 
-    target_svc = req.services[0] if req.services else "global"
     slo_alerts_raw = []
     if not isinstance(slo_errors_raw, Exception) and not isinstance(slo_total_raw, Exception):
-        err_series = list(anomaly.iter_series(slo_errors_raw))
-        tot_series = list(anomaly.iter_series(slo_total_raw))
-        for (_, err_ts, err_vals), (_, _tot_ts, tot_vals) in zip(err_series, tot_series):
+        for (_, err_ts, err_vals), (_, _tot_ts, tot_vals) in zip(
+            anomaly.iter_series(slo_errors_raw),
+            anomaly.iter_series(slo_total_raw),
+        ):
             slo_alerts_raw.extend(
-                slo_evaluate(target_svc, err_vals, tot_vals, err_ts, req.slo_target or 0.999)
+                slo_evaluate(primary_service or "global", err_vals, tot_vals, err_ts, req.slo_target or 0.999)
             )
     slo_alerts = [SloBurnAlertModel(**dataclasses.asdict(a)) for a in slo_alerts_raw]
 
@@ -176,8 +218,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     anomaly_clusters = cluster(metric_anomalies)
 
     fresh_granger = test_all_pairs(series_map, max_lag=3) if len(series_map) >= 2 else []
-    service_label = req.services[0] if req.services else "global"
-    await granger_store.save_and_merge(tenant_id, service_label, fresh_granger)
+    await granger_store.save_and_merge(tenant_id, primary_service or "global", fresh_granger)
 
     causal_graph = CausalGraph()
     causal_graph.from_granger_results(fresh_granger)
@@ -191,7 +232,6 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         has_error_propagation=bool(error_propagation),
     )
 
-    compat_registry = _build_compat_registry(deployment_events)
     root_causes = rca.generate(
         metric_anomalies,
         log_bursts,
@@ -200,20 +240,10 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         error_propagation,
         correlated_events=correlated_events,
         graph=graph,
-        event_registry=compat_registry,
+        event_registry=_build_compat_registry(deployment_events),
     )
     ranked_causes = rank(root_causes, correlated_events)
-
-    pydantic_root_causes = []
-    for r in ranked_causes:
-        rc = r.root_cause
-        if dataclasses.is_dataclass(rc):
-            pyd = RootCauseModel(**dataclasses.asdict(rc))
-        elif isinstance(rc, dict):
-            pyd = RootCauseModel(**rc)
-        else:
-            pyd = RootCauseModel.model_validate(rc)
-        pydantic_root_causes.append(pyd)
+    pydantic_root_causes = [_to_root_cause_model(r.root_cause) for r in ranked_causes]
 
     severity = _overall_severity(
         metric_anomalies, log_bursts, log_patterns,
@@ -245,18 +275,3 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     )
     report.summary = _summary(report)
     return report
-
-
-def _build_compat_registry(deployment_events: list) -> EventRegistry:
-    r = EventRegistry()
-    for e in deployment_events:
-        r.register(DeploymentEvent(
-            service=e["service"],
-            timestamp=e["timestamp"],
-            version=e["version"],
-            author=e.get("author", ""),
-            environment=e.get("environment", "production"),
-            source=e.get("source", "redis"),
-            metadata=e.get("metadata", {}),
-        ))
-    return r

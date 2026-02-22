@@ -1,3 +1,13 @@
+"""
+Registry for Tenant-Specific Weights and Events
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,20 +20,31 @@ from config import DEFAULT_WEIGHTS, REGISTRY_ALPHA
 
 log = logging.getLogger(__name__)
 
-# default weights and alpha come from config for consistency
+_SIGNAL_KEYS: tuple[Signal, ...] = (Signal.metrics, Signal.logs, Signal.traces)
 
+
+def _coerce_weights(raw: dict) -> Dict[Signal, float]:
+    return {Signal(k): float(v) for k, v in raw.items() if k in Signal._value2member_map_}
+
+
+def _serialize_weights(weights: Dict[Signal, float]) -> Dict[str, float]:
+    return {k.value: v for k, v in weights.items()}
 
 
 class TenantState:
     __slots__ = ("_weights", "_update_count")
 
-    def __init__(self, weights: Dict[str, float], update_count: int) -> None:
-        self._weights = dict(weights)
+    def __init__(self, weights: Dict[Signal, float], update_count: int) -> None:
+        self._weights: Dict[Signal, float] = dict(weights)
         self._update_count = update_count
 
     @property
-    def weights(self) -> Dict[str, float]:
+    def weights(self) -> Dict[Signal, float]:
         return dict(self._weights)
+
+    @property
+    def weights_serializable(self) -> Dict[str, float]:
+        return _serialize_weights(self._weights)
 
     @property
     def update_count(self) -> int:
@@ -31,8 +52,8 @@ class TenantState:
 
     def update_weight(self, signal: Signal, was_correct: bool) -> None:
         reward = 1.0 if was_correct else 0.0
-        current = self._weights.get(signal, 1.0 / 3)
-        self._weights[signal] = round((1 - REGISTRY_ALPHA) * current + REGISTRY_ALPHA * reward, 4)
+        current = self._weights.get(signal, DEFAULT_WEIGHTS.get(signal, 1.0 / len(_SIGNAL_KEYS)))
+        self._weights[signal] = (1 - REGISTRY_ALPHA) * current + REGISTRY_ALPHA * reward
         self._normalize()
         self._update_count += 1
 
@@ -42,17 +63,19 @@ class TenantState:
         log_score: float,
         trace_score: float,
     ) -> float:
+        w = self._weights
+        default = DEFAULT_WEIGHTS
         return round(
-            self._weights.get(Signal.metrics, 0.30) * metric_score
-            + self._weights.get(Signal.logs,    0.35) * log_score
-            + self._weights.get(Signal.traces,  0.35) * trace_score,
-            3,
+            w.get(Signal.metrics, default[Signal.metrics]) * metric_score
+            + w.get(Signal.logs, default[Signal.logs]) * log_score
+            + w.get(Signal.traces, default[Signal.traces]) * trace_score,
+            4,
         )
 
     def _normalize(self) -> None:
         total = sum(self._weights.values()) or 1.0
         for k in self._weights:
-            self._weights[k] = round(self._weights[k] / total, 4)
+            self._weights[k] = self._weights[k] / total
 
     def reset(self) -> None:
         self._weights = dict(DEFAULT_WEIGHTS)
@@ -68,7 +91,7 @@ class TenantRegistry:
             stored = await weight_store.load(tenant_id)
             if stored:
                 state = TenantState(
-                    weights=stored["weights"],
+                    weights=_coerce_weights(stored["weights"]),
                     update_count=stored.get("update_count", 0),
                 )
             else:
@@ -79,7 +102,7 @@ class TenantRegistry:
     async def update_weight(self, tenant_id: str, signal: Signal, was_correct: bool) -> TenantState:
         state = await self.get_state(tenant_id)
         state.update_weight(signal, was_correct)
-        await weight_store.save(tenant_id, state.weights, state.update_count)
+        await weight_store.save(tenant_id, state.weights_serializable, state.update_count)
         return state
 
     async def reset_weights(self, tenant_id: str) -> TenantState:
@@ -99,10 +122,11 @@ class TenantRegistry:
         await event_store.clear(tenant_id)
 
     async def events_in_window(self, tenant_id: str, start: float, end: float) -> List[dict]:
-        return [
-            e for e in await event_store.load(tenant_id)
-            if start <= e["timestamp"] <= end
-        ]
+        events = await event_store.load(tenant_id)
+        return [e for e in events if start <= e["timestamp"] <= end]
+
+    def evict(self, tenant_id: str) -> None:
+        self._states.pop(tenant_id, None)
 
 
 _registry = TenantRegistry()

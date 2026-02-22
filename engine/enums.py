@@ -1,5 +1,5 @@
 """
-Enumerations for severity levels, signal types, and change types used in the Be Certain Analysis Engine.
+Enumerations for Severity, Signal Types, Change Types, and RCA Categories
 
 Copyright (c) 2026 Stefan Kumarasinghe
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+from config import SEVERITY_WEIGHTS
 
 class Severity(str, Enum):
     low = "low"
@@ -20,7 +21,7 @@ class Severity(str, Enum):
     critical = "critical"
 
     @classmethod
-    def from_score(cls, score: float) -> "Severity":
+    def from_score(cls, score: float) -> Severity:
         if score >= 0.75:
             return cls.critical
         if score >= 0.50:
@@ -30,7 +31,7 @@ class Severity(str, Enum):
         return cls.low
 
     def weight(self) -> int:
-        return {"low": 1, "medium": 2, "high": 4, "critical": 8}[self.value]
+        return SEVERITY_WEIGHTS[self.value]
 
 
 class Signal(str, Enum):

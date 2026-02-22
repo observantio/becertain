@@ -17,7 +17,7 @@ from fastapi import APIRouter
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
 from engine import anomaly, logs
-from engine.constants import DEFAULT_METRIC_QUERIES
+from config import DEFAULT_METRIC_QUERIES
 from engine.correlation import correlate, link_logs_to_metrics
 from engine.fetcher import fetch_metrics
 from api.requests import CorrelateRequest

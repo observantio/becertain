@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
 from engine import anomaly
-from engine.constants import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS
+from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS
 from engine.fetcher import fetch_metrics
 from engine.forecast import analyze_degradation, forecast
 from api.requests import CorrelateRequest

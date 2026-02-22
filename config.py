@@ -57,16 +57,48 @@ SLO_TOTAL_QUERY_TEMPLATE = (
     'sum(rate(http_requests_total{{service="{service}"}}[5m]))'
 )
 
+# default metric queries used by various API routes when none are supplied
+DEFAULT_METRIC_QUERIES = [
+    "sum(rate(traces_spanmetrics_calls_total[5m])) by (service)",
+    "histogram_quantile(0.99, sum(rate(traces_spanmetrics_latency_bucket[5m])) by (le, service))",
+    "sum(rate(traces_spanmetrics_calls_total{status_code='STATUS_CODE_ERROR'}[5m])) by (service)",
+    "sum(rate(traces_service_graph_request_failed_total[5m])) by (client, server)",
+    "sum(rate(traces_service_graph_request_total[5m])) by (client, server)",
+    "sum(rate(system_cpu_time_seconds_total[5m])) by (cpu)",
+    "system_memory_usage_bytes",
+    "system_filesystem_usage_bytes",
+]
+
+# explicit queries used by analyzer for SLO burn; kept separate from the
+# configurable templates above because they target pre-aggregated spanmetrics
+SLO_ERROR_QUERY = 'sum(rate(traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR"}[5m]))'
+SLO_TOTAL_QUERY = 'sum(rate(traces_spanmetrics_calls_total[5m]))'
+
+# thresholds for which metrics we attempt to forecast or signal degradation
+FORECAST_THRESHOLDS: dict[str, float] = {
+    "system_memory_usage_bytes": 0.85,
+    "system_filesystem_usage_bytes": 0.90,
+    "traces_spanmetrics_latency": 2.0,
+    "traces_service_graph_request_failed": 0.05,
+}
+
+# weight values assigned to severity labels for comparison and ranking
+SEVERITY_WEIGHTS: dict[str, int] = {
+    "low": 1,
+    "medium": 2,
+    "high": 4,
+    "critical": 8,
+}
+
 DATASOURCE_TIMEOUT = 30  
 HEALTH_PATH = "/ready"
 
 # registry defaults
-from engine.enums import Signal
-
+# use plain strings for weights to avoid circular import with engine.enums
 DEFAULT_WEIGHTS: Dict[str, float] = {
-    Signal.metrics: 0.30,
-    Signal.logs: 0.35,
-    Signal.traces: 0.35,
+    "metrics": 0.30,
+    "logs": 0.35,
+    "traces": 0.35,
 }
 
 REGISTRY_ALPHA: float = float(os.getenv("REGISTRY_ALPHA", "0.2"))  # smoothing constant used in weight updates

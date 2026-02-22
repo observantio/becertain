@@ -17,7 +17,7 @@ from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
 from engine import anomaly
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
-from engine.constants import DEFAULT_METRIC_QUERIES
+from config import DEFAULT_METRIC_QUERIES
 from engine.fetcher import fetch_metrics
 from engine.registry import get_registry
 from store import granger as granger_store
