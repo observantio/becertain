@@ -1,10 +1,14 @@
-# Be Certain
+# Why Be Certain with your Infrastructure
 
-**Be Certain** is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests.
+Be Certain is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring and much more related to traces, logs and metrics. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests. So users can easily drop in their own analysis package
 
 ![alt text](assets/becertain.png)
 
 ## 🚀 Key Features
+
+Be certain is currently being tested to ensure it is working as expected so we welcome PR to fix any bugs and issues
+
+![alt text](assets/opening.png)
 
 - 🧠 **Anomaly Detection**: Multiple algorithms for identifying unusual patterns in time-series data.
 - 📈 **Forecasting & Baseline**: Predictive models and baseline computation for future trends.
@@ -38,6 +42,8 @@
 | `engine/events/*` + `engine/registry.py` | Maintains tenant-scoped deployment/event context and adaptive signal weights used in confidence blending. |
 
 ## 🛠️ Project Structure
+
+The engine is the brain of the Be Certain and it is connected inside the Analyzer.py
 
 ```
 .

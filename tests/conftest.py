@@ -63,12 +63,7 @@ def clear_fallback(monkeypatch):
 
 
 
-
-
-
-
-
-def pytest_ignore_collect(path, config):
-    text = str(path)
+def pytest_ignore_collect(collection_path, path=None, config=None):
+    text = str(collection_path)
     if os.path.sep + 'engine' + os.path.sep in text:
         return True
