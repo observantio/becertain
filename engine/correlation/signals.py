@@ -38,14 +38,16 @@ def link_logs_to_metrics(
 
     for anomaly in metric_anomalies:
         for burst in log_bursts:
-            lag = anomaly.timestamp - burst.start
+            burst_start = float(getattr(burst, "window_start", getattr(burst, "start", 0.0)))
+            log_stream = str(getattr(burst, "stream", "unknown"))
+            lag = anomaly.timestamp - burst_start
             if 0 <= lag <= max_lag_seconds:
                 strength = round(1.0 - (lag / max_lag_seconds), 3)
                 links.append(LogMetricLink(
                     metric_name=anomaly.metric_name,
                     metric_timestamp=anomaly.timestamp,
-                    log_stream=burst.stream,
-                    log_burst_start=burst.start,
+                    log_stream=log_stream,
+                    log_burst_start=burst_start,
                     lag_seconds=round(lag, 1),
                     strength=strength,
                 ))

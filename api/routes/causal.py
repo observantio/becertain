@@ -39,9 +39,10 @@ async def granger_causality(req: CorrelateRequest) -> Dict[str, Any]:
     )
 
     series_map: Dict[str, list] = {}
-    for resp in metrics_raw:
+    for query_string, resp in metrics_raw:
         for metric_name, _, vals in anomaly.iter_series(resp):
-            series_map[metric_name] = vals
+            series_key = f"{query_string}::{metric_name}"
+            series_map[series_key] = vals
 
     fresh_results = test_all_pairs(series_map)
     service_label = req.services[0] if req.services else DEFAULT_SERVICE_NAME

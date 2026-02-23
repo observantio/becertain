@@ -79,7 +79,7 @@ def generate(
     event_registry: Optional[EventRegistry] = None,
 ) -> List[RootCause]:
     causes: List[RootCause] = []
-    deployments = event_registry._events if event_registry else []
+    deployments = event_registry.list_all() if event_registry else []
 
     for event in (correlated_events or []):
         if event.confidence < settings.rca_event_confidence_threshold:

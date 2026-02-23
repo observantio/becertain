@@ -45,6 +45,7 @@ class VictoriaMetricsConnector(MetricsConnector):
             params=params,
             headers=self._headers(),
             timeout=self.timeout,
+            client=self.client,
             invalid_msg="VictoriaMetrics query failed",
             timeout_msg="VictoriaMetrics query timed out",
             unavailable_msg="Cannot reach VictoriaMetrics at",

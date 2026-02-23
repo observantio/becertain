@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter
@@ -22,6 +23,7 @@ from api.requests import SloRequest
 from config import settings
 
 router = APIRouter(tags=["SLO"])
+log = logging.getLogger(__name__)
 
 
 
@@ -44,7 +46,32 @@ async def slo_burn(req: SloRequest) -> Dict[str, Any]:
 
     alerts = []
     budget = None
-    for (_, err_ts, err_vals), (_, _tot_ts, tot_vals) in zip(err_series, tot_series):
+    if len(err_series) != len(tot_series):
+        log.warning(
+            "SLO series mismatch for tenant=%s service=%s errors=%d totals=%d",
+            req.tenant_id,
+            req.service,
+            len(err_series),
+            len(tot_series),
+        )
+
+    pair_count = min(len(err_series), len(tot_series))
+    for idx in range(pair_count):
+        _, err_ts, err_vals = err_series[idx]
+        _, _tot_ts, tot_vals = tot_series[idx]
+        if len(err_vals) != len(tot_vals):
+            n = min(len(err_vals), len(tot_vals))
+            log.warning(
+                "SLO sample length mismatch for tenant=%s service=%s pair=%d errors=%d totals=%d",
+                req.tenant_id,
+                req.service,
+                idx,
+                len(err_vals),
+                len(tot_vals),
+            )
+            err_vals = err_vals[:n]
+            tot_vals = tot_vals[:n]
+            err_ts = err_ts[:n]
         alerts.extend(slo_evaluate(req.service, err_vals, tot_vals, err_ts, req.target_availability))
         budget = remaining_minutes(req.service, err_vals, tot_vals, req.target_availability)
 

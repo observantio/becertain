@@ -24,10 +24,22 @@ from datasources.provider import DataSourceProvider
 
 
 _T = TypeVar("_T")
+_providers: dict[str, DataSourceProvider] = {}
 
 
 def get_provider(tenant_id: str) -> DataSourceProvider:
-    return DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
+    provider = _providers.get(tenant_id)
+    if provider is None:
+        provider = DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
+        _providers[tenant_id] = provider
+    return provider
+
+
+async def close_providers() -> None:
+    providers = list(_providers.values())
+    _providers.clear()
+    for provider in providers:
+        await provider.aclose()
 
 
 async def safe_call(coro: Awaitable[_T], status_code: int = 502) -> _T:

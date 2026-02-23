@@ -15,7 +15,6 @@ from fastapi import APIRouter, HTTPException
 
 from engine.events.registry import DeploymentEvent
 from api.routes.exception import handle_exceptions
-from api.routes.common import get_provider
 from engine.registry import get_registry
 from api.requests import DeploymentEventRequest
 
@@ -25,7 +24,9 @@ router = APIRouter(tags=["Events"])
 @router.post("/events/deployment", summary="Register a deployment event for RCA correlation")
 @handle_exceptions
 async def register_deployment(req: DeploymentEventRequest, tenant_id: str | None = None) -> Dict[str, str]:
-    tid = tenant_id or get_provider(req.tenant_id)
+    tid = tenant_id or req.tenant_id
+    if not isinstance(tid, str) or not tid.strip():
+        raise HTTPException(status_code=400, detail="tenant_id must be a non-empty string")
 
     await get_registry().register_event(
         tid,

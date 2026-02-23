@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from api.routes import router
+from api.routes.common import close_providers
 from datasources.data_config import DataSourceSettings
 from config import settings
 from datasources.exceptions import BackendStartupTimeout
@@ -141,7 +142,10 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tenant_id = settings.default_tenant_id
     asyncio.create_task(_wait_for_all_bg(settings, tenant_id))
-    yield
+    try:
+        yield
+    finally:
+        await close_providers()
 
 
 app = FastAPI(

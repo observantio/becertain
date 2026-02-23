@@ -135,5 +135,6 @@ class AnalysisReport(NpModel):
     anomaly_clusters: List[Any] = []
     granger_results: List[Any] = []
     bayesian_scores: List[Any] = []
+    analysis_warnings: List[str] = []
     overall_severity: Severity
     summary: str

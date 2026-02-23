@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
+import httpx
 
 class BaseConnector(ABC):
     health_path: str = ""
@@ -19,6 +20,7 @@ class BaseConnector(ABC):
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
         self.headers = headers or {}
+        self.client = httpx.AsyncClient(timeout=self.timeout)
 
     @property
     def health_url(self) -> str:
@@ -29,6 +31,9 @@ class BaseConnector(ABC):
     def _headers(self) -> Dict[str, str]:
         """Basic header set applied to every outbound request."""
         return {**self.headers, "X-Scope-OrgID": self.tenant_id}
+
+    async def aclose(self) -> None:
+        await self.client.aclose()
 
 
 class LogsConnector(BaseConnector):

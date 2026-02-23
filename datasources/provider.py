@@ -38,3 +38,8 @@ class DataSourceProvider:
             return await self.traces.query_range(filters=filters, start=start, end=end, limit=limit)
         except DataSourceError as e:
             raise
+
+    async def aclose(self) -> None:
+        await self.logs.aclose()
+        await self.metrics.aclose()
+        await self.traces.aclose()

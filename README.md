@@ -1,18 +1,43 @@
 # Be Certain
 
-**Be Certain** is a Python‑based analytics platform for ingesting, processing and correlating telemetry from diverse sources. Its modular architecture separates APIs, connectors, data sources, engines and persistence layers to promote extensibility and maintainability.
+![alt text](assets/becertain.png)
 
-### 🚀 Core Capabilities
+**Be Certain** is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests.
 
-- **Anomaly Detection** – multiple algorithms for identifying irregularities in time‑series data  
-- **Forecasting & Baselines** – predictive models and baseline computations  
-- **Correlation & Causal Analysis** – tools to explore relationships between metrics and events  
-- **SLO Monitoring** – query templates and endpoints to calculate service‑level objectives  
-- **Connectors** – built‑in support for Loki, Mimir, Tempo and Victoria stores  
-- **Persistent Storage** – registry and client modules for results and configuration  
-- **Comprehensive Testing** – pytest suite covering all components
+## 🚀 Key Features
 
-### 🛠️ Project Layout
+- 🧠 **Anomaly Detection**: Multiple algorithms for identifying unusual patterns in time-series data.
+- 📈 **Forecasting & Baseline**: Predictive models and baseline computation for future trends.
+- 🔄 **Correlation & Causal Analysis**: Tools to understand relationships between metrics and events.
+- 📊 **SLO Monitoring**: Query templates and routes to compute service level objectives.
+- 🔗 **Connectors**: Built-in support for Loki, Mimir, Tempo, and Victoria metrics stores.
+- 🗃️ **Persistent Store**: Registry and client modules store results and configuration.
+- 🧪 **Comprehensive Tests**: Suite of pytest tests for each component and functionality.
+
+
+## ⚙️ Engine Analysis Pipeline
+
+`POST /api/v1/analyze` runs a staged pipeline through the `engine/` package:
+
+| Engine Module | Responsibility |
+|---|---|
+| `engine/analyzer.py` | Orchestrates the full RCA workflow: fetch, metric analysis, logs/traces analysis, SLO checks, correlation, causal scoring, ranking, and final report assembly. |
+| `engine/fetcher.py` | Executes metric queries with bounded concurrency and fallback scrape behavior when query-range results are empty. |
+| `engine/anomaly/*` | Parses time series (`series.py`) and detects anomalies (`detection.py`) with severity and change-type classification. |
+| `engine/baseline/*` | Computes baseline bands and z-score references used by changepoint and anomaly interpretation. |
+| `engine/changepoint/*` | Detects structural shifts/oscillation in metric behavior using CUSUM-style logic. |
+| `engine/logs/*` | Detects log bursts and extracts repeated high-signal patterns from log streams. |
+| `engine/traces/*` | Computes latency degradation (`p50/p95/p99`, apdex, error rate) and detects error propagation across services. |
+| `engine/slo/*` | Calculates burn rate alerts and remaining error-budget status against target availability. |
+| `engine/correlation/*` | Links anomalies across metrics/logs/traces in temporal windows and computes event confidence. |
+| `engine/forecast/*` | Produces trajectory forecasts (time-to-threshold) and degradation signals from trends. |
+| `engine/causal/*` | Computes Granger-style pair causality, causal graph roots/interventions, and Bayesian category posteriors. |
+| `engine/rca/*` | Generates hypothesis objects from correlated evidence and scores/ranks likely root causes. |
+| `engine/ml/*` | Clusters anomalies and ranks causes with rule+ML blended scoring. |
+| `engine/topology/*` | Builds dependency graph views (blast radius, upstream roots, paths). |
+| `engine/events/*` + `engine/registry.py` | Maintains tenant-scoped deployment/event context and adaptive signal weights used in confidence blending. |
+
+## 🛠️ Project Structure
 
 ```
 .
@@ -172,7 +197,6 @@ Run the main application with Docker:
 
 ```bash
 docker build -t becertain:latest .
-
 docker run --rm -it \
     -p 8000:8000 \
     --name becertain \
@@ -183,7 +207,9 @@ or execute individual modules for development and debugging.
 
 ## 🧩 Contributing
 
-Contributions are welcome! Please follow standard GitHub workflow with feature branches and pull requests. Ensure tests pass:
+Contributions are welcome! Please follow standard GitHub workflow with feature branches and pull requests. 
+
+Ensure tests pass:
 
 ```bash
 pytest -q
@@ -195,4 +221,4 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
-> _Clean, professional analytics for confident decision-making._ Powering Be Observant (To be released)
+Clean, professional analytics for confident decision-making - Powering Be Observant by Stefan Kumarasinghe

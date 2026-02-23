@@ -10,7 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
-from api.requests import DeploymentEventRequest
+from api.requests import AnalyzeRequest, CorrelateRequest, DeploymentEventRequest, SloRequest
 from pydantic import ValidationError
 
 
@@ -19,3 +19,12 @@ def test_deployment_request_requires_tenant():
     assert req.tenant_id == "t1"
     with pytest.raises(ValidationError):
         DeploymentEventRequest(service="s", timestamp=1.0, version="v1")
+
+
+def test_time_range_validations():
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(tenant_id="t1", start=10, end=10)
+    with pytest.raises(ValidationError):
+        CorrelateRequest(tenant_id="t1", start=11, end=10)
+    with pytest.raises(ValidationError):
+        SloRequest(tenant_id="t1", service="svc", start=5, end=5)

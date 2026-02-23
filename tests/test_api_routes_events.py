@@ -26,11 +26,10 @@ class DummyRegistry:
 async def test_register_deployment_with_tenant_in_body(monkeypatch):
     dummy = DummyRegistry()
     monkeypatch.setattr(events_route, "get_registry", lambda: dummy)
-    monkeypatch.setattr(events_route, "get_provider", lambda tid: f"prov-{tid}")
     req = DeploymentEventRequest(tenant_id="t1", service="s", timestamp=123, version="v1")
     res = await events_route.register_deployment(req)
     assert res["status"] == "registered"
-    assert dummy.events[0][0] == "prov-t1"
+    assert dummy.events[0][0] == "t1"
 
 
 @pytest.mark.asyncio

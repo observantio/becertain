@@ -47,6 +47,7 @@ class LokiConnector(LogsConnector):
             params=params,
             headers=self._headers(),
             timeout=self.timeout,
+            client=self.client,
             invalid_msg="Loki query failed",
             timeout_msg="Loki query timed out",
             unavailable_msg="Cannot reach Loki at",

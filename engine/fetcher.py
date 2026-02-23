@@ -16,6 +16,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from datasources.provider import DataSourceProvider
+from config import settings
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +87,14 @@ async def fetch_metrics(
     end: int,
     step: str,
 ) -> List[Tuple[str, Dict[str, Any]]]:
-    raw = await asyncio.gather(
-        *[provider.query_metrics(query=q, start=start, end=end, step=step) for q in queries],
-        return_exceptions=True,
-    )
+    max_parallel = max(1, int(settings.analyzer_max_parallel_metric_queries))
+    sem = asyncio.Semaphore(max_parallel)
+
+    async def _query(q: str) -> Any:
+        async with sem:
+            return await provider.query_metrics(query=q, start=start, end=end, step=step)
+
+    raw = await asyncio.gather(*[_query(q) for q in queries], return_exceptions=True)
 
     pairs: List[Tuple[str, Dict[str, Any]]] = []
     any_results = False

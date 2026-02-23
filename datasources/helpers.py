@@ -22,15 +22,19 @@ async def fetch_json(
     params: Optional[Dict[str, Any]] = None,
     headers: Optional[Dict[str, str]] = None,
     timeout: int = 30,
+    client: Optional[httpx.AsyncClient] = None,
     invalid_msg: str = "query failed",
     timeout_msg: str = "query timed out",
     unavailable_msg: str = "Cannot reach data source at",
 ) -> Dict[str, Any]:
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if client is None:
+            async with httpx.AsyncClient(timeout=timeout) as owned_client:
+                resp = await owned_client.get(url, params=params, headers=headers)
+        else:
             resp = await client.get(url, params=params, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+        resp.raise_for_status()
+        return resp.json()
     except httpx.HTTPStatusError as e:
         raise InvalidQuery(f"{invalid_msg} [{e.response.status_code}]: {e.response.text}") from e
     except httpx.TimeoutException as e:
@@ -43,15 +47,19 @@ async def fetch_text(
     url: str,
     headers: Optional[Dict[str, str]] = None,
     timeout: int = 30,
+    client: Optional[httpx.AsyncClient] = None,
     invalid_msg: str = "request failed",
     timeout_msg: str = "request timed out",
     unavailable_msg: str = "Cannot reach data source at",
 ) -> str:
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if client is None:
+            async with httpx.AsyncClient(timeout=timeout) as owned_client:
+                resp = await owned_client.get(url, headers=headers)
+        else:
             resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            return resp.text
+        resp.raise_for_status()
+        return resp.text
     except httpx.HTTPStatusError as e:
         raise InvalidQuery(f"{invalid_msg} [{e.response.status_code}]: {e.response.text}") from e
     except httpx.TimeoutException as e:

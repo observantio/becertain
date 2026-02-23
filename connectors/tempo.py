@@ -47,6 +47,7 @@ class TempoConnector(TracesConnector):
             params=params,
             headers=self._headers(),
             timeout=self.timeout,
+            client=self.client,
             invalid_msg="Tempo query failed",
             timeout_msg="Tempo query timed out",
             unavailable_msg="Cannot reach Tempo at",

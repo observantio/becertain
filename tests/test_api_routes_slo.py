@@ -65,3 +65,42 @@ async def test_slo_burn_custom_queries_override(monkeypatch):
     await slo_route.slo_burn(req)
 
     assert dummy.queries == ["errQ", "totQ"]
+
+
+@pytest.mark.asyncio
+async def test_slo_burn_handles_mismatched_series_lengths(monkeypatch):
+    class MismatchProvider:
+        async def query_metrics(self, query, start, end, step):
+            if "5.." in query:
+                return {
+                    "data": {
+                        "result": [
+                            {"metric": {"__name__": "err_a"}, "values": [[1, "1"], [2, "2"], [3, "3"]]},
+                            {"metric": {"__name__": "err_b"}, "values": [[1, "1"]]},
+                        ]
+                    }
+                }
+            return {
+                "data": {
+                    "result": [
+                        {"metric": {"__name__": "tot_a"}, "values": [[1, "10"], [2, "10"]]},
+                    ]
+                }
+            }
+
+    seen = {"calls": 0}
+
+    def tracking_eval(service, err_vals, tot_vals, ts, target):
+        seen["calls"] += 1
+        assert len(err_vals) == len(tot_vals) == len(ts)
+        return []
+
+    dummy = MismatchProvider()
+    monkeypatch.setattr(slo_route, "get_provider", lambda tid: dummy)
+    monkeypatch.setattr(slo_route, "slo_evaluate", tracking_eval)
+    monkeypatch.setattr(slo_route, "remaining_minutes", dummy_remaining)
+
+    req = SloRequest(tenant_id="t1", service="abc", start=0, end=10, step="1", target_availability=0.99)
+    res = await slo_route.slo_burn(req)
+    assert "burn_alerts" in res
+    assert seen["calls"] == 1

@@ -205,6 +205,10 @@ class Settings(BaseSettings):
 
     # analyzer tuning
     analyzer_sensitivity_factor: float = 0.67
+    analyzer_max_parallel_metric_queries: int = 8
+    analyzer_max_parallel_cpu_tasks: int = 4
+    analyzer_granger_max_series: int = 20
+    analyzer_granger_min_samples: int = 20
 
     # event registry window
     events_window_seconds: float = 300.0
@@ -373,6 +377,8 @@ class Settings(BaseSettings):
 
     # weights defaults
     default_weight_fallback: float = 0.0  # 0 means compute as 1/len(Signals) if not set
+    store_redis_retry_cooldown_seconds: float = 10.0
+    store_fallback_max_items: int = 10_000
 
     model_config = {
         "env_prefix": "BECERTAIN_",
@@ -381,5 +387,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
 

@@ -1,0 +1,55 @@
+"""
+API causal route tests for granger series keying behavior.
+"""
+
+import pytest
+
+from api.routes import causal as causal_route
+from api.requests import CorrelateRequest
+
+
+class DummyProvider:
+    async def query_metrics(self, query, start, end, step):
+        return {
+            "data": {
+                "result": [
+                    {
+                        "metric": {"__name__": "shared_metric"},
+                        "values": [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], [6, "6"], [7, "7"], [8, "8"], [9, "9"], [10, "10"], [11, "11"], [12, "12"]],
+                    }
+                ]
+            }
+        }
+
+
+@pytest.mark.asyncio
+async def test_granger_causality_uses_unique_series_keys(monkeypatch):
+    dummy = DummyProvider()
+    monkeypatch.setattr(causal_route, "get_provider", lambda tid: dummy)
+    monkeypatch.setattr(causal_route, "DEFAULT_METRIC_QUERIES", [])
+
+    captured = {"count": 0, "keys": []}
+
+    def fake_test_all_pairs(series_map, max_lag=None, p_threshold=None):
+        captured["count"] = len(series_map)
+        captured["keys"] = sorted(series_map.keys())
+        return []
+
+    async def fake_save_and_merge(tenant_id, service, fresh_results):
+        return []
+
+    monkeypatch.setattr(causal_route, "test_all_pairs", fake_test_all_pairs)
+    monkeypatch.setattr(causal_route.granger_store, "save_and_merge", fake_save_and_merge)
+
+    req = CorrelateRequest(
+        tenant_id="tenant-a",
+        start=1,
+        end=100,
+        step="15s",
+        metric_queries=["q1", "q2"],
+    )
+
+    res = await causal_route.granger_causality(req)
+    assert res["fresh_pairs"] == 0
+    assert captured["count"] == 2
+    assert captured["keys"][0] != captured["keys"][1]
