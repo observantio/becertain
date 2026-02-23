@@ -1,8 +1,8 @@
 # Be Certain
 
-![alt text](assets/becertain.png)
-
 **Be Certain** is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests.
+
+![alt text](assets/becertain.png)
 
 ## 🚀 Key Features
 
