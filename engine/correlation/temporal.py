@@ -1,3 +1,13 @@
+"""
+Temporal correlation logic to identify related anomalies across different signals (metrics, logs, traces) based on their occurrence within a configurable time window, and to compute a confidence score for the correlation based on the number and types of signals involved, to assist in root cause analysis and incident investigation.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,13 +31,17 @@ def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> bool
     return a_start <= b_end and b_start <= a_end
 
 
+from config import settings
+
 def correlate(
     metric_anomalies: List[MetricAnomaly],
     log_bursts: List[LogBurst],
     service_latency: List[ServiceLatency],
-    window_seconds: float = 60.0,
+    window_seconds: float | None = None,
 ) -> List[CorrelatedEvent]:
-    # log bursts may use either 'start'/'end' or newer 'window_start'/'window_end'
+    if window_seconds is None:
+        window_seconds = settings.correlation_window_seconds
+
     anchor_times: List[float] = sorted(
         [a.timestamp for a in metric_anomalies]
         + [getattr(b, "start", getattr(b, "window_start", None)) for b in log_bursts]
@@ -62,10 +76,10 @@ def correlate(
         if sig < 2:
             continue
 
-        metric_score = min(1.0, len(ma) * 0.25)
-        log_score = min(1.0, len(lb) * 0.35)
-        trace_score = min(0.35, len(sl) * 0.1)
-        confidence = round(min(1.0, metric_score + log_score + trace_score), 3)
+        metric_score = min(settings.correlation_score_max, len(ma) * settings.correlation_weight_time)
+        log_score = min(settings.correlation_score_max, len(lb) * settings.correlation_weight_latency)
+        trace_score = min(settings.correlation_errors_cap, len(sl) * settings.correlation_weight_errors)
+        confidence = round(min(settings.correlation_score_max, metric_score + log_score + trace_score), 3)
 
         events.append(CorrelatedEvent(
             window_start=w_start,

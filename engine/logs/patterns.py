@@ -1,3 +1,13 @@
+"""
+Pattern recognition logic for logs, including normalization, severity classification, and entropy-based uniqueness scoring to identify common log patterns and their characteristics.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import math
@@ -5,20 +15,13 @@ import re
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterator, List, Tuple
 
+from config import settings
+
 from engine.enums import Severity
 from api.responses import LogPattern
 
-_NOISE = re.compile(
-    r"\b(?:"
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"  
-    r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"  
-    r"|(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?"        
-    r"|\d+\.?\d*(?:ms|s|m|h|us|ns)\b"            
-    r"|0x[0-9a-f]+"                               
-    r"|\b\d{4,}\b"                                
-    r")\b",
-    re.I,
-)
+
+_NOISE = re.compile(settings.logs_noise_regex, re.I)
 
 _SEVERITY_RE = {
     Severity.critical: re.compile(r"\b(fatal|panic|oom|killed|segfault|out of memory)\b", re.I),
@@ -34,7 +37,7 @@ def _iter_entries(loki_response: Dict[str, Any]) -> Iterator[Tuple[float, str]]:
 
 
 def _normalize(line: str) -> str:
-    return re.sub(r"\s+", " ", _NOISE.sub("<_>", line)).strip()[:180]
+    return re.sub(r"\s+", " ", _NOISE.sub("<_>", line)).strip()[: settings.logs_normalized_length_cutoff]
 
 
 def _classify(line: str) -> Severity:
@@ -69,18 +72,18 @@ def analyze(loki_response: Dict[str, Any]) -> List[LogPattern]:
         b["first"] = min(b["first"], ts)
         b["last"] = max(b["last"], ts)
         if not b["sample"]:
-            b["sample"] = line[:300]
+            b["sample"] = line[: settings.logs_sample_snippet]
         sev = _classify(line)
         if sev.weight() > b["severity"].weight():
             b["severity"] = sev
-        if len(b["tokens"]) < 500:
+        if len(b["tokens"]) < settings.logs_token_cap:
             b["tokens"].extend(key.split())
 
     results: List[LogPattern] = []
     for pattern, b in buckets.items():
         if b["first"] == float("inf"):
             continue
-        duration = max(b["last"] - b["first"], 1.0)
+        duration = max(b["last"] - b["first"], settings.logs_min_duration)
         results.append(LogPattern(
             pattern=pattern,
             count=b["count"],

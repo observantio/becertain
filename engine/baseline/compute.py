@@ -1,10 +1,21 @@
+"""
+Compute logic for calculating baseline statistics (mean, standard deviation, confidence intervals) for a given set of time series data points, with optional seasonal adjustment based on hourly patterns, to assist in anomaly detection by providing a reference point for identifying significant deviations in metric values.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+from config import settings
 
 import numpy as np
-
+from config import settings
 
 @dataclass(frozen=True)
 class Baseline:
@@ -20,18 +31,20 @@ def _hour_buckets(ts: List[float]) -> List[int]:
     return [(int(t) % 86400) // 3600 for t in ts]
 
 
-def compute(ts: List[float], vals: List[float], z_threshold: float = 3.0) -> Baseline:
+def compute(ts: List[float], vals: List[float], z_threshold: float | None = None) -> Baseline:
+    if z_threshold is None:
+        z_threshold = settings.baseline_zscore_threshold
     arr = np.array(vals, dtype=float)
     n = len(arr)
 
-    if n < 6:
+    if n < settings.baseline_min_samples:
         m = float(np.mean(arr))
         s = float(np.std(arr)) or 1.0
         return Baseline(mean=m, std=s, lower=m - z_threshold * s, upper=m + z_threshold * s, sample_count=n)
 
     seasonal_mean: Optional[float] = None
 
-    if n >= 24:
+    if n >= settings.baseline_seasonal_min_samples:
         buckets = _hour_buckets(ts)
         bucket_map: Dict[int, List[float]] = {}
         for b, v in zip(buckets, vals):

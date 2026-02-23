@@ -22,11 +22,15 @@ class Severity(str, Enum):
 
     @classmethod
     def from_score(cls, score: float) -> Severity:
-        if score >= 0.75:
+        # thresholds are configurable via settings so that tests and
+        # runtime behaviour can be tuned without modifying this logic.
+        from config import settings
+
+        if score >= settings.severity_score_critical:
             return cls.critical
-        if score >= 0.50:
+        if score >= settings.severity_score_high:
             return cls.high
-        if score >= 0.25:
+        if score >= settings.severity_score_medium:
             return cls.medium
         return cls.low
 

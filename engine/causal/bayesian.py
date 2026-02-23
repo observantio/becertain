@@ -1,3 +1,13 @@
+"""
+Bayesian scoring logic for root cause analysis, providing functionality to compute the posterior probability of different root cause categories based on observed evidence (such as deployment events, metric spikes, log bursts, latency spikes, and error propagation) using configurable priors and likelihoods, to assist in prioritizing potential causes during incident investigation.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,67 +16,14 @@ from typing import Dict, List
 from engine.enums import RcaCategory
 
 
-_PRIORS: Dict[RcaCategory, float] = {
-    RcaCategory.deployment:          0.35,
-    RcaCategory.resource_exhaustion: 0.20,
-    RcaCategory.dependency_failure:  0.20,
-    RcaCategory.traffic_surge:       0.10,
-    RcaCategory.error_propagation:   0.10,
-    RcaCategory.slo_burn:            0.03,
-    RcaCategory.unknown:             0.02,
-}
+from config import settings
 
-_LIKELIHOODS: Dict[RcaCategory, Dict[str, float]] = {
-    RcaCategory.deployment: {
-        "has_deployment_event": 0.95,
-        "has_metric_spike":     0.70,
-        "has_log_burst":        0.60,
-        "has_latency_spike":    0.50,
-        "has_error_propagation":0.40,
-    },
-    RcaCategory.resource_exhaustion: {
-        "has_deployment_event": 0.15,
-        "has_metric_spike":     0.90,
-        "has_log_burst":        0.50,
-        "has_latency_spike":    0.70,
-        "has_error_propagation":0.30,
-    },
-    RcaCategory.dependency_failure: {
-        "has_deployment_event": 0.10,
-        "has_metric_spike":     0.50,
-        "has_log_burst":        0.70,
-        "has_latency_spike":    0.95,
-        "has_error_propagation":0.80,
-    },
-    RcaCategory.traffic_surge: {
-        "has_deployment_event": 0.05,
-        "has_metric_spike":     0.95,
-        "has_log_burst":        0.60,
-        "has_latency_spike":    0.60,
-        "has_error_propagation":0.20,
-    },
-    RcaCategory.error_propagation: {
-        "has_deployment_event": 0.10,
-        "has_metric_spike":     0.60,
-        "has_log_burst":        0.80,
-        "has_latency_spike":    0.85,
-        "has_error_propagation":0.99,
-    },
-    RcaCategory.slo_burn: {
-        "has_deployment_event": 0.20,
-        "has_metric_spike":     0.80,
-        "has_log_burst":        0.50,
-        "has_latency_spike":    0.60,
-        "has_error_propagation":0.50,
-    },
-    RcaCategory.unknown: {
-        "has_deployment_event": 0.05,
-        "has_metric_spike":     0.30,
-        "has_log_burst":        0.30,
-        "has_latency_spike":    0.30,
-        "has_error_propagation":0.10,
-    },
-}
+def _configured_priors() -> Dict[RcaCategory, float]:
+    return {RcaCategory(k): v for k, v in settings.bayesian_priors.items()}
+
+
+def _configured_likelihoods() -> Dict[RcaCategory, Dict[str, float]]:
+    return {RcaCategory(k): v for k, v in settings.bayesian_likelihoods.items()}
 
 
 @dataclass(frozen=True)
@@ -92,12 +49,15 @@ def score(
         "has_error_propagation":has_error_propagation,
     }
 
+    priors = _configured_priors()
+    likelihood_map = _configured_likelihoods()
+
     raw_posteriors: Dict[RcaCategory, float] = {}
-    for category, prior in _PRIORS.items():
+    for category, prior in priors.items():
         likelihood = 1.0
-        likelihoods = _LIKELIHOODS.get(category, {})
+        likelihoods = likelihood_map.get(category, {})
         for feature, present in evidence.items():
-            p = likelihoods.get(feature, 0.5)
+            p = likelihoods.get(feature, settings.bayesian_default_feature_prob)
             likelihood *= p if present else (1.0 - p)
         raw_posteriors[category] = prior * likelihood
 
@@ -106,8 +66,8 @@ def score(
         BayesianScore(
             category=cat,
             posterior=round(raw / total, 4),
-            prior=round(_PRIORS[cat], 4),
-            likelihood=round(raw / _PRIORS[cat] if _PRIORS[cat] else 0.0, 4),
+            prior=round(priors.get(cat, 0.0), 4),
+            likelihood=round(raw / priors.get(cat, 1.0) if priors.get(cat) else 0.0, 4),
         )
         for cat, raw in raw_posteriors.items()
     ]

@@ -1,3 +1,13 @@
+"""
+Frequency-based burst detection logic for logs, analyzing log entry timestamps to identify periods of unusually high log activity, with severity categorization based on configured thresholds.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Iterator, List, Tuple
@@ -20,7 +30,9 @@ def _iter_entries(loki_response: Dict[str, Any]) -> Iterator[Tuple[float, str]]:
             yield float(ts_ns) / 1e9, line
 
 
-def detect_bursts(loki_response: Dict[str, Any], window_seconds: float = 10.0) -> List[LogBurst]:
+def detect_bursts(loki_response: Dict[str, Any], window_seconds: float | None = None) -> List[LogBurst]:
+    if window_seconds is None:
+        window_seconds = settings.logs_frequency_window_seconds
     entries = sorted(_iter_entries(loki_response), key=lambda x: x[0])
     if len(entries) < 2:
         return []

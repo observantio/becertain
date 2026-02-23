@@ -1,3 +1,14 @@
+"""
+Degradation analysis logic for time series metrics, including trend detection, volatility measurement, and severity classification based on configured thresholds, to identify potential performance degradations in monitored systems.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +17,7 @@ from typing import List, Optional
 import numpy as np
 
 from engine.enums import Severity
+from config import settings
 
 
 @dataclass(frozen=True)
@@ -19,7 +31,9 @@ class DegradationSignal:
     is_accelerating: bool
 
 
-def _ema(vals: List[float], alpha: float = 0.3) -> np.ndarray:
+def _ema(vals: List[float], alpha: float | None = None) -> np.ndarray:
+    if alpha is None:
+        alpha = settings.forecast_ema_alpha
     result = np.zeros(len(vals))
     result[0] = vals[0]
     for i in range(1, len(vals)):
@@ -39,9 +53,11 @@ def analyze(
     metric_name: str,
     ts: List[float],
     vals: List[float],
-    min_degradation_rate: float = 0.01,
+    min_degradation_rate: float | None = None,
 ) -> Optional[DegradationSignal]:
-    if len(vals) < 10:
+    if min_degradation_rate is None:
+        min_degradation_rate = settings.forecast_min_degradation_rate
+    if len(vals) < settings.forecast_degradation_min_length:
         return None
 
     arr = np.array(vals, dtype=float)
@@ -58,11 +74,13 @@ def analyze(
 
     trend = "degrading" if overall_slope > 0 else "recovering"
 
-    if rate > 0.3 or (rate > 0.1 and acceleration > 0):
+    if rate > settings.forecast_degradation_threshold_critical or (
+        rate > settings.forecast_degradation_threshold_high and acceleration > 0
+    ):
         sev = Severity.critical
-    elif rate > 0.15:
+    elif rate > settings.forecast_degradation_threshold_high:
         sev = Severity.high
-    elif rate > 0.05:
+    elif rate > settings.forecast_degradation_threshold_medium:
         sev = Severity.medium
     else:
         sev = Severity.low

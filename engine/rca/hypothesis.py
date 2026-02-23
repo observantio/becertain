@@ -1,3 +1,13 @@
+"""
+RCA hypothesis generation based on correlated events, error propagation analysis, and multi-signal correlation patterns, with confidence scoring and severity categorization.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,6 +25,7 @@ from engine.rca.scoring import (
     score_error_propagation, categorize,
 )
 from engine.enums import Severity, RcaCategory
+from config import settings
 
 
 @dataclass
@@ -71,16 +82,16 @@ def generate(
     deployments = event_registry._events if event_registry else []
 
     for event in (correlated_events or []):
-        if event.confidence < 0.3:
+        if event.confidence < settings.rca_event_confidence_threshold:
             continue
 
         category = categorize(event, deployments)
         base_score = score_correlated_event(event)
         deploy_score = score_deployment_correlation(event.window_start, deployments)
-        confidence = round(min(0.99, base_score + deploy_score * 0.2), 3)
+        confidence = round(min(settings.rca_score_cap, base_score + deploy_score * 0.2), 3)
 
         deploy_event: Optional[DeploymentEvent] = None
-        nearby_deploys = [d for d in deployments if abs(d.timestamp - event.window_start) <= 300]
+        nearby_deploys = [d for d in deployments if abs(d.timestamp - event.window_start) <= settings.rca_deploy_window_seconds]
         if nearby_deploys:
             deploy_event = min(nearby_deploys, key=lambda d: abs(d.timestamp - event.window_start))
 
@@ -133,11 +144,11 @@ def generate(
             recommended_action=_action_for_category(RcaCategory.error_propagation, svc),
         ))
 
-    critical_patterns = [p for p in log_patterns if p.severity.weight() >= 3]
+    critical_patterns = [p for p in log_patterns if p.severity.weight() >= settings.rca_severity_weight_threshold]
     if critical_patterns:
         causes.append(RootCause(
             hypothesis=f"[log_pattern] {len(critical_patterns)} critical pattern(s): {critical_patterns[0].pattern[:80]}",
-            confidence=0.6,
+            confidence=settings.rca_log_pattern_score,
             severity=Severity.high,
             category=RcaCategory.unknown,
             contributing_signals=[f"log:{p.pattern[:40]}" for p in critical_patterns[:3]],

@@ -1,3 +1,14 @@
+"""
+Weights and thresholds for machine learning models and heuristics used in anomaly detection, root cause analysis, and severity classification, defined in a centralized module for easy configuration and tuning.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,7 +17,12 @@ from typing import Dict, Union
 from engine.enums import Signal
 from config import DEFAULT_WEIGHTS, REGISTRY_ALPHA
 
-_DEFAULT_FALLBACK = 1.0 / len(Signal)
+from config import settings
+
+if settings.default_weight_fallback and settings.default_weight_fallback > 0.0:
+    _DEFAULT_FALLBACK = settings.default_weight_fallback
+else:
+    _DEFAULT_FALLBACK = 1.0 / len(Signal)
 
 
 def _key(signal: Union[Signal, str]) -> str:

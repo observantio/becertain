@@ -1,6 +1,17 @@
+"""
+Graph structure and logic for representing causal relationships between metrics, allowing for simulation of interventions and identification of root causes based on a directed acyclic graph (DAG) representation of causality.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from config import settings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -62,7 +73,9 @@ class CausalGraph:
         all_causes = set(self._forward)
         return sorted(all_causes - all_effects)
 
-    def simulate_intervention(self, target: str, max_depth: int = 5) -> InterventionResult:
+    def simulate_intervention(self, target: str, max_depth: int | None = None) -> InterventionResult:
+        if max_depth is None:
+            max_depth = settings.causal_graph_max_depth
         effects: Dict[str, float] = {}
         path: List[str] = []
         queue: deque[Tuple[str, float, int]] = deque([(target, 1.0, 0)])
@@ -78,7 +91,8 @@ class CausalGraph:
                     seen.add(edge.effect)
                     path.append(edge.effect)
                 effects[edge.effect] = round(
-                    max(effects.get(edge.effect, 0.0), effect_strength), 4
+                    max(effects.get(edge.effect, 0.0), effect_strength),
+                    settings.causal_round_precision,
                 )
                 queue.append((edge.effect, effect_strength, depth + 1))
 
@@ -86,7 +100,7 @@ class CausalGraph:
             target=target,
             expected_effect_on=effects,
             causal_path=path,
-            total_effect=round(sum(effects.values()), 4),
+            total_effect=round(sum(effects.values()), settings.causal_round_precision),
         )
 
     def find_common_causes(self, node_a: str, node_b: str) -> List[str]:

@@ -1,3 +1,12 @@
+"""
+Cusum (Cumulative Sum) change point detection logic for identifying significant shifts in metric behavior, to assist in early detection of anomalies and support root cause analysis.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,25 +28,33 @@ class ChangePoint:
 
 
 def _classify(before: float, after: float, std: float) -> ChangeType:
+    from config import settings
+
     delta = after - before
     relative = abs(delta) / (abs(before) + 1e-9)
-    if relative > 0.5:
+    if relative > settings.cusum_relative_cutoff:
         return ChangeType.spike if delta > 0 else ChangeType.drop
     if abs(delta) > 2 * std:
         return ChangeType.shift
     return ChangeType.drift
 
 
-def _detect_oscillation(arr: np.ndarray, window: int = 10) -> List[int]:
+def _detect_oscillation(arr: np.ndarray, window: int | None = None) -> List[int]:
+    from config import settings
+    if window is None:
+        window = settings.cusum_window
     sign_changes = np.diff(np.sign(np.diff(arr)))
     indices = np.where(np.abs(sign_changes) > 1)[0]
     if len(indices) < window // 2:
         return []
     density = len(indices) / len(arr)
-    return list(indices) if density > 0.3 else []
+    return list(indices) if density > settings.cusum_oscillation_density_cutoff else []
 
 
-def detect(ts: List[float], vals: List[float], threshold_sigma: float = 4.0) -> List[ChangePoint]:
+def detect(ts: List[float], vals: List[float], threshold_sigma: float | None = None) -> List[ChangePoint]:
+    from config import settings
+    if threshold_sigma is None:
+        threshold_sigma = settings.cusum_threshold_sigma
     if len(vals) < 10:
         return []
 
@@ -49,7 +66,7 @@ def detect(ts: List[float], vals: List[float], threshold_sigma: float = 4.0) -> 
 
     oscillation_indices = set(_detect_oscillation(arr))
 
-    k = 0.5 * sigma
+    k = settings.cusum_k * sigma
     h = threshold_sigma * sigma
     cusum_pos = cusum_neg = 0.0
     results: List[ChangePoint] = []

@@ -1,3 +1,13 @@
+"""
+Trajectory forecasting logic for metrics, using linear regression to predict future values based on recent trends, and estimating time to breach thresholds with confidence scoring and severity classification.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +16,7 @@ from typing import List, Optional
 import numpy as np
 
 from engine.enums import Severity
+from config import settings
 
 
 @dataclass(frozen=True)
@@ -42,15 +53,17 @@ def forecast(
     ts: List[float],
     vals: List[float],
     threshold: float,
-    horizon_seconds: float = 1800.0,
+    horizon_seconds: float | None = None,
 ) -> Optional[TrajectoryForecast]:
-    if len(vals) < 8:
+    if horizon_seconds is None:
+        horizon_seconds = settings.forecast_trajectory_horizon_cutoff
+    if len(vals) < settings.forecast_trajectory_min_length:
         return None
 
     slope, intercept = _linear_fit(ts, vals)
     r2 = _r_squared(ts, vals, slope, intercept)
 
-    if r2 < 0.2 or slope == 0:
+    if r2 < settings.forecast_trajectory_r2_threshold or slope == 0:
         return None
 
     now_offset = ts[-1] - ts[0]
@@ -64,14 +77,15 @@ def forecast(
         time_to_threshold = (current - threshold) / abs(slope)
 
     will_breach = time_to_threshold is not None and time_to_threshold <= horizon_seconds
-    if not will_breach and abs(predicted_at_horizon - threshold) / (abs(threshold) + 1e-9) > 0.5:
+    if not will_breach and abs(predicted_at_horizon - threshold) / (abs(threshold) + 1e-9) > settings.forecast_trajectory_ratio_threshold:
         return None
 
     confidence = round(min(0.99, r2 * (1.0 - min(1.0, abs(slope) / (abs(current) + 1e-9)))), 3)
 
-    if time_to_threshold and time_to_threshold < 300:
+    window = settings.forecast_trajectory_window_seconds
+    if time_to_threshold and time_to_threshold < window:
         sev = Severity.critical
-    elif time_to_threshold and time_to_threshold < 900:
+    elif time_to_threshold and time_to_threshold < window * 3:
         sev = Severity.high
     elif will_breach:
         sev = Severity.medium

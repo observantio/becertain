@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import numpy as np
 import pytest
+import random
 
 from engine.causal.granger import granger_pair_analysis, granger_multiple_pairs
 from engine.anomaly.detection import detect

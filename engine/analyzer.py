@@ -20,7 +20,7 @@ from engine import anomaly, logs, rca, traces
 from engine.baseline import compute as baseline_compute
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
 from engine.changepoint import detect as changepoint_detect, ChangePoint
-from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS, SLO_ERROR_QUERY, SLO_TOTAL_QUERY
+from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS, SLO_ERROR_QUERY, SLO_TOTAL_QUERY, settings
 from engine.correlation import correlate, link_logs_to_metrics
 from engine.dedup import group_metric_anomalies
 from engine.events.registry import DeploymentEvent, EventRegistry
@@ -159,7 +159,12 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     )
     trace_filters = {"service.name": primary_service} if primary_service else {}
     all_metric_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
-    z_threshold = 1.0 + req.sensitivity * 0.67 if req.sensitivity else 3.0
+    # sensitivity modifies the baseline z‑score threshold, otherwise use
+    # default configured value
+    if req.sensitivity:
+        z_threshold = 1.0 + req.sensitivity * settings.analyzer_sensitivity_factor
+    else:
+        z_threshold = settings.baseline_zscore_threshold
 
     logs_raw, traces_raw, slo_errors_raw, slo_total_raw = await asyncio.gather(
         provider.query_logs(
@@ -217,7 +222,11 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     )
     anomaly_clusters = cluster(metric_anomalies)
 
-    fresh_granger = test_all_pairs(series_map, max_lag=3) if len(series_map) >= 2 else []
+    fresh_granger = (
+        test_all_pairs(series_map, max_lag=settings.granger_max_lag)
+        if len(series_map) >= 2
+        else []
+    )
     await granger_store.save_and_merge(tenant_id, primary_service or "global", fresh_granger)
 
     causal_graph = CausalGraph()

@@ -1,3 +1,13 @@
+"""
+Clustering logic for grouping related anomalies based on temporal proximity and value similarity, using DBSCAN or a simple fallback method when scikit-learn is unavailable.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +16,7 @@ from typing import List
 import numpy as np
 
 from api.responses import MetricAnomaly
+from config import settings
 
 
 @dataclass
@@ -29,9 +40,13 @@ def _feature_matrix(anomalies: List[MetricAnomaly]) -> np.ndarray:
 
 def cluster(
     anomalies: List[MetricAnomaly],
-    eps: float = 0.1,
-    min_samples: int = 2,
+    eps: float | None = None,
+    min_samples: int | None = None,
 ) -> List[AnomalyCluster]:
+    if eps is None:
+        eps = settings.ml_cluster_eps
+    if min_samples is None:
+        min_samples = settings.ml_cluster_min_samples
     if len(anomalies) < min_samples:
         return []
 

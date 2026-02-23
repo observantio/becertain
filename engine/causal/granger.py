@@ -1,7 +1,14 @@
+"""
+Granger causality analysis logic for determining whether one time series can be considered a cause of another based on the predictability of the effect series using past values of the cause series, to assist in root cause analysis and understanding of relationships between metrics.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
-
-
-__test__ = False
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -35,14 +42,20 @@ def _lag_matrix(series: np.ndarray, max_lag: int) -> np.ndarray:
     return np.column_stack(cols)
 
 
+from config import settings
+
 def granger_pair_analysis(
     cause_name: str,
     cause_vals: List[float],
     effect_name: str,
     effect_vals: List[float],
-    max_lag: int = 3,
-    p_threshold: float = 0.05,
+    max_lag: int | None = None,
+    p_threshold: float | None = None,
 ) -> Optional[GrangerResult]:
+    if max_lag is None:
+        max_lag = settings.granger_max_lag
+    if p_threshold is None:
+        p_threshold = settings.granger_p_threshold
     if len(cause_vals) != len(effect_vals) or len(cause_vals) < max_lag + 10:
         return None
 
@@ -74,7 +87,11 @@ def granger_pair_analysis(
     p_value = float(1.0 - stats.f.cdf(f_stat, k, denom_df))
 
     is_causal = p_value < p_threshold and f_stat > 1.0
-    strength = round(max(0.0, 1.0 - p_value) * min(1.0, f_stat / 10.0), 3)
+    strength = round(
+        max(0.0, 1.0 - p_value)
+        * min(1.0, f_stat / settings.granger_strength_scale),
+        3,
+    )
 
     return GrangerResult(
         cause_metric=cause_name,
@@ -89,9 +106,13 @@ def granger_pair_analysis(
 
 def granger_multiple_pairs(
     series_map: Dict[str, List[float]],
-    max_lag: int = 3,
-    p_threshold: float = 0.05,
+    max_lag: int | None = None,
+    p_threshold: float | None = None,
 ) -> List[GrangerResult]:
+    if max_lag is None:
+        max_lag = settings.granger_max_lag
+    if p_threshold is None:
+        p_threshold = settings.granger_p_threshold
     names = list(series_map.keys())
     results: List[GrangerResult] = []
 

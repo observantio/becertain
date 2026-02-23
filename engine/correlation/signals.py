@@ -1,9 +1,20 @@
+"""
+Linking logic for correlating log bursts to metric anomalies, providing functionality to associate log streams with metric anomalies based on temporal proximity and strength of correlation, to support root cause analysis and incident investigation.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List
 
 from api.responses import MetricAnomaly, LogBurst
+from config import settings
 
 
 @dataclass(frozen=True)
@@ -19,8 +30,10 @@ class LogMetricLink:
 def link_logs_to_metrics(
     metric_anomalies: List[MetricAnomaly],
     log_bursts: List[LogBurst],
-    max_lag_seconds: float = 120.0,
+    max_lag_seconds: float | None = None,
 ) -> List[LogMetricLink]:
+    if max_lag_seconds is None:
+        max_lag_seconds = settings.max_lag_seconds
     links: List[LogMetricLink] = []
 
     for anomaly in metric_anomalies:

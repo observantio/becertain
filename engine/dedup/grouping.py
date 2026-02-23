@@ -1,9 +1,21 @@
+"""
+Grouping logic for deduplication of anomalies, providing functionality to cluster similar anomalies based on temporal proximity and optionally by metric name, to reduce noise and improve signal quality for downstream analysis.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Generic, List, TypeVar
 
 from api.responses import MetricAnomaly
+from config import settings
 
 T = TypeVar("T")
 
@@ -17,9 +29,11 @@ class AnomalyGroup(Generic[T]):
 
 def group_metric_anomalies(
     anomalies: List[MetricAnomaly],
-    time_window: float = 120.0,
+    time_window: float | None = None,
     by_metric: bool = True,
 ) -> List[AnomalyGroup[MetricAnomaly]]:
+    if time_window is None:
+        time_window = settings.dedup_time_window
     if not anomalies:
         return []
 

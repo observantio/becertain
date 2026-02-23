@@ -1,3 +1,13 @@
+"""
+Ranking Logic for Root Cause Analysis, combining rule-based confidence with machine learning predictions based on features extracted from root cause hypotheses and correlated events, to produce a final ranked list of potential causes for observed anomalies.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,16 +27,18 @@ class RankedCause:
     feature_importance: dict[str, float]
 
 
+from config import settings
+
 def _extract_features(cause: RootCause, event: Optional[CorrelatedEvent] = None) -> List[float]:
     return [
         cause.confidence,
-        cause.severity.weight() / 8.0,
-        len(cause.contributing_signals) / 10.0,
-        len(cause.affected_services) / 10.0,
+        cause.severity.weight() / settings.ranking_severity_divisor,
+        len(cause.contributing_signals) / settings.ranking_signal_divisor,
+        len(cause.affected_services) / settings.ranking_signal_divisor,
         1.0 if cause.deployment is not None else 0.0,
-        len(event.metric_anomalies) / 5.0 if event else 0.0,
-        len(event.log_bursts) / 5.0 if event else 0.0,
-        len(event.service_latency) / 5.0 if event else 0.0,
+        len(event.metric_anomalies) / settings.ranking_event_count_divisor if event else 0.0,
+        len(event.log_bursts) / settings.ranking_event_count_divisor if event else 0.0,
+        len(event.service_latency) / settings.ranking_event_count_divisor if event else 0.0,
         event.confidence if event else 0.0,
     ]
 
@@ -68,9 +80,13 @@ def rank(
         from sklearn.ensemble import RandomForestClassifier
 
         if len(causes) >= 4:
-            labels = [1 if c.confidence >= 0.5 else 0 for c in causes]
+            labels = [1 if c.confidence >= settings.ranking_label_threshold else 0 for c in causes]
             if len(set(labels)) > 1:
-                rf = RandomForestClassifier(n_estimators=50, max_depth=4, random_state=42)
+                rf = RandomForestClassifier(
+                    n_estimators=settings.ranking_rf_n_estimators,
+                    max_depth=settings.ranking_rf_max_depth,
+                    random_state=settings.ranking_rf_random_state,
+                )
                 rf.fit(X, labels)
                 ml_scores = rf.predict_proba(X)[:, 1]
                 importances = dict(zip(_FEATURE_NAMES, rf.feature_importances_))
@@ -86,7 +102,11 @@ def rank(
 
     results: List[RankedCause] = []
     for cause, ml_score in zip(causes, ml_scores):
-        final = round(0.6 * cause.confidence + 0.4 * float(ml_score), 3)
+        final = round(
+            settings.ranking_confidence_blend * cause.confidence
+            + settings.ranking_ml_blend * float(ml_score),
+            3,
+        )
         results.append(RankedCause(
             root_cause=cause,
             ml_score=round(float(ml_score), 3),

@@ -1,12 +1,13 @@
-"""Tests for beCertain project.
+"""
+Test Suite for Anomaly Detection
+
 Copyright (c) 2026 Stefan Kumarasinghe
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
-you may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
-"""you may not use this file except in compliance with the License.
-you may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
-"""\n\n
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import pytest
 
 from engine.anomaly.detection import _mad_scores, _cusum_changepoints, _change_type, _severity, detect

@@ -1,3 +1,14 @@
+"""
+Registry for deployment events, allowing for recording and querying of deployment-related information such as service name, timestamp, version, author, environment, source, and additional metadata, to facilitate correlation with observed anomalies and support root cause analysis.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -28,7 +39,10 @@ class EventRegistry:
     def in_window(self, start: float, end: float) -> List[DeploymentEvent]:
         return [e for e in self._events if start <= e.timestamp <= end]
 
-    def near_timestamp(self, ts: float, window_seconds: float = 300.0) -> List[DeploymentEvent]:
+    def near_timestamp(self, ts: float, window_seconds: float | None = None) -> List[DeploymentEvent]:
+        from config import settings
+        if window_seconds is None:
+            window_seconds = settings.events_window_seconds
         return self.in_window(ts - window_seconds, ts + window_seconds)
 
     def for_service(self, service: str) -> List[DeploymentEvent]:

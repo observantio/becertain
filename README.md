@@ -1,18 +1,18 @@
-# BeCertain
+# Be Certain
 
-**BeCertain** is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests.
+**Be Certain** is a Python‑based analytics platform for ingesting, processing and correlating telemetry from diverse sources. Its modular architecture separates APIs, connectors, data sources, engines and persistence layers to promote extensibility and maintainability.
 
-## 🚀 Key Features
+### 🚀 Core Capabilities
 
-- 🧠 **Anomaly Detection**: Multiple algorithms for identifying unusual patterns in time-series data.
-- 📈 **Forecasting & Baseline**: Predictive models and baseline computation for future trends.
-- 🔄 **Correlation & Causal Analysis**: Tools to understand relationships between metrics and events.
-- 📊 **SLO Monitoring**: Query templates and routes to compute service level objectives.
-- 🔗 **Connectors**: Built-in support for Loki, Mimir, Tempo, and Victoria metrics stores.
-- 🗃️ **Persistent Store**: Registry and client modules store results and configuration.
-- 🧪 **Comprehensive Tests**: Suite of pytest tests for each component and functionality.
+- **Anomaly Detection** – multiple algorithms for identifying irregularities in time‑series data  
+- **Forecasting & Baselines** – predictive models and baseline computations  
+- **Correlation & Causal Analysis** – tools to explore relationships between metrics and events  
+- **SLO Monitoring** – query templates and endpoints to calculate service‑level objectives  
+- **Connectors** – built‑in support for Loki, Mimir, Tempo and Victoria stores  
+- **Persistent Storage** – registry and client modules for results and configuration  
+- **Comprehensive Testing** – pytest suite covering all components
 
-## 🛠️ Project Structure
+### 🛠️ Project Layout
 
 ```
 .
@@ -171,10 +171,8 @@ cd becertain
 Run the main application with Docker:
 
 ```bash
-# build the image (use the workspace folder as context)
 docker build -t becertain:latest .
 
-# start the container in the foreground (exposing ports as needed)
 docker run --rm -it \
     -p 8000:8000 \
     --name becertain \

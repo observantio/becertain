@@ -1,3 +1,14 @@
+
+"""
+Scoring and categorization logic for RCA hypotheses based on deployment correlation, error propagation, and multi-signal correlation patterns.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 from typing import List
@@ -5,13 +16,16 @@ from typing import List
 from engine.correlation.temporal import CorrelatedEvent
 from engine.events.registry import DeploymentEvent
 from engine.enums import RcaCategory
+from config import settings
 
 
 def score_deployment_correlation(
     anomaly_ts: float,
     deployments: List[DeploymentEvent],
-    window_seconds: float = 300.0,
+    window_seconds: float | None = None,
 ) -> float:
+    if window_seconds is None:
+        window_seconds = settings.rca_deploy_window_seconds
     nearby = [d for d in deployments if abs(d.timestamp - anomaly_ts) <= window_seconds]
     if not nearby:
         return 0.0
@@ -23,16 +37,23 @@ def score_error_propagation(propagation: list) -> float:
     if not propagation:
         return 0.0
     affected = sum(len(getattr(p, "affected_services", [])) for p in propagation)
-    return round(min(0.95, 0.5 + affected * 0.1), 3)
+    base = settings.rca_baseline_base
+    factor = settings.rca_baseline_affected_factor
+    return round(min(settings.rca_errorprop_max, base + affected * factor), 3)
 
 
 def score_correlated_event(event: CorrelatedEvent) -> float:
-    weights = {
-        "metrics": 0.25 * min(1.0, len(event.metric_anomalies)),
-        "logs":    0.40 * min(1.0, len(event.log_bursts)),
-        "traces":  0.35 * min(1.0, len(event.service_latency)),
-    }
-    return round(min(1.0, sum(weights.values())), 3)
+    weights = {}
+    for signal, weight in settings.rca_weights.items():
+        count = 0
+        if signal == "metrics":
+            count = len(event.metric_anomalies)
+        elif signal == "logs":
+            count = len(event.log_bursts)
+        elif signal == "traces":
+            count = len(event.service_latency)
+        weights[signal] = weight * min(settings.correlation_score_max, count)
+    return round(min(settings.correlation_score_max, sum(weights.values())), 3)
 
 
 def categorize(
@@ -43,13 +64,14 @@ def categorize(
         event.window_start, deployments
     ) if deployments else 0.0
 
-    if deploy_score > 0.6:
+    if deploy_score > settings.rca_deploy_score_cutoff:
         return RcaCategory.deployment
 
     has_memory = any(
         "memory" in a.metric_name or "mem" in a.metric_name
         for a in event.metric_anomalies
     )
+
     has_cpu = any("cpu" in a.metric_name for a in event.metric_anomalies)
     if has_memory or has_cpu:
         return RcaCategory.resource_exhaustion
