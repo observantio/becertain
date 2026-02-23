@@ -218,7 +218,3 @@ pytest -q
 ## 📄 License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
-
----
-
-Clean, professional analytics for confident decision-making - Powering Be Observant by Stefan Kumarasinghe

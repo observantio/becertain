@@ -40,7 +40,7 @@ BECERTAIN_METRICS_VICTORIAMETRICS_URL = os.getenv("BECERTAIN_METRICS_VICTORIAMET
 BECERTAIN_TRACES_BACKEND = os.getenv("BECERTAIN_TRACES_BACKEND", TRACES_BACKEND_TEMPO).lower()
 BECERTAIN_TRACES_TEMPO_URL = os.getenv("BECERTAIN_TRACES_TEMPO_URL", "http://tempo:3200").rstrip("/")
 
-BECERTAIN_CONNECTOR_TIMEOUT = int(os.getenv("BECERTAIN_CONNECTOR_TIMEOUT", "30"))
+BECERTAIN_CONNECTOR_TIMEOUT = int(os.getenv("BECERTAIN_CONNECTOR_TIMEOUT", "10"))
 BECERTAIN_STARTUP_TIMEOUT = int(os.getenv("BECERTAIN_STARTUP_TIMEOUT", "120"))
 
 # tenant defaults
@@ -209,6 +209,9 @@ class Settings(BaseSettings):
     analyzer_max_parallel_cpu_tasks: int = 4
     analyzer_granger_max_series: int = 20
     analyzer_granger_min_samples: int = 20
+    analyzer_fetch_timeout_seconds: float = 8.0
+    analyzer_metrics_timeout_seconds: float = 12.0
+    analyzer_causal_timeout_seconds: float = 5.0
 
     # event registry window
     events_window_seconds: float = 300.0
@@ -387,4 +390,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

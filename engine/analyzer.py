@@ -272,24 +272,46 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         z_threshold = settings.baseline_zscore_threshold
 
     fetch_started = time.perf_counter()
-    logs_raw, traces_raw, slo_errors_raw, slo_total_raw = await asyncio.gather(
-        provider.query_logs(
-            query=log_query,
-            start=req.start * 1_000_000_000,
-            end=req.end * 1_000_000_000,
-        ),
-        provider.query_traces(filters=trace_filters, start=req.start, end=req.end),
-        provider.query_metrics(query=SLO_ERROR_QUERY, start=req.start, end=req.end, step=req.step),
-        provider.query_metrics(query=SLO_TOTAL_QUERY, start=req.start, end=req.end, step=req.step),
-        return_exceptions=True,
-    )
+    try:
+        logs_raw, traces_raw, slo_errors_raw, slo_total_raw = await asyncio.wait_for(
+            asyncio.gather(
+                provider.query_logs(
+                    query=log_query,
+                    start=req.start * 1_000_000_000,
+                    end=req.end * 1_000_000_000,
+                ),
+                provider.query_traces(filters=trace_filters, start=req.start, end=req.end),
+                provider.query_metrics(query=SLO_ERROR_QUERY, start=req.start, end=req.end, step=req.step),
+                provider.query_metrics(query=SLO_TOTAL_QUERY, start=req.start, end=req.end, step=req.step),
+                return_exceptions=True,
+            ),
+            timeout=float(settings.analyzer_fetch_timeout_seconds),
+        )
+    except TimeoutError:
+        warnings.append(
+            f"Fetch stage timed out after {settings.analyzer_fetch_timeout_seconds}s; "
+            "continuing with best-effort analysis."
+        )
+        logs_raw = TimeoutError("logs fetch timeout")
+        traces_raw = TimeoutError("traces fetch timeout")
+        slo_errors_raw = TimeoutError("slo error fetch timeout")
+        slo_total_raw = TimeoutError("slo total fetch timeout")
     log.debug("analyzer stage=fetch duration=%.4fs", time.perf_counter() - fetch_started)
 
     metrics_started = time.perf_counter()
     try:
-        metric_anomalies, change_points, forecasts, degradation_signals, series_map = (
-            await _process_metrics(provider, req, all_metric_queries, z_threshold)
+        metric_anomalies, change_points, forecasts, degradation_signals, series_map = await asyncio.wait_for(
+            _process_metrics(provider, req, all_metric_queries, z_threshold),
+            timeout=float(settings.analyzer_metrics_timeout_seconds),
         )
+    except TimeoutError:
+        msg = (
+            f"Metrics stage timed out after {settings.analyzer_metrics_timeout_seconds}s; "
+            "returning partial report."
+        )
+        warnings.append(msg)
+        log.warning(msg)
+        metric_anomalies, change_points, forecasts, degradation_signals, series_map = [], [], [], [], {}
     except Exception as exc:
         msg = f"Metrics unavailable: {exc}"
         warnings.append(msg)
@@ -346,8 +368,22 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
 
     causal_started = time.perf_counter()
     series_for_granger = _select_granger_series(series_map)
+    granger_started = time.perf_counter()
     fresh_granger = test_all_pairs(series_for_granger, max_lag=settings.granger_max_lag) if len(series_for_granger) >= 2 else []
-    await granger_store.save_and_merge(tenant_id, primary_service or "global", fresh_granger)
+    granger_elapsed = time.perf_counter() - granger_started
+    if granger_elapsed > float(settings.analyzer_causal_timeout_seconds):
+        warnings.append(
+            f"Causal granger stage exceeded target {settings.analyzer_causal_timeout_seconds}s "
+            f"(actual {granger_elapsed:.2f}s)."
+        )
+
+    try:
+        await asyncio.wait_for(
+            granger_store.save_and_merge(tenant_id, primary_service or "global", fresh_granger),
+            timeout=1.0,
+        )
+    except Exception as exc:
+        warnings.append(f"Failed to persist granger results: {exc}")
 
     causal_graph = CausalGraph()
     causal_graph.from_granger_results(fresh_granger)
