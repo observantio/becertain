@@ -12,7 +12,7 @@ jobs:
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'master') &&
+      github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.repository.private == false
     permissions:
       contents: read
@@ -50,7 +50,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.DOCKER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push becertain
         uses: docker/build-push-action@v6
@@ -59,4 +59,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/stefankumarasinghe/becertain:stable
+            ghcr.io/observantio/becertain:stable
+            ghcr.io/observantio/becertain:${{ github.event.workflow_run.id }}

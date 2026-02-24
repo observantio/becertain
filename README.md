@@ -193,8 +193,8 @@ The engine is the brain of the Be Certain and it is connected inside the Analyze
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/StefanKumarasinghe/becertain.git
-cd becertain
+git clone https://github.com/observantio/becertain.git BeCertain
+cd BeCertain
 ```
 
 ## ⚙️ Usage
