@@ -1,230 +1,115 @@
-# Why Be Certain with your Infrastructure
+# 🧠 Be Certain
 
-Be Certain is a Python-based analytics engine designed to process, analyze, and correlate telemetry data from various sources. It offers features for anomaly detection, forecasting, causal analysis, event handling, and service level objective (SLO) monitoring and much more related to traces, logs and metrics. The architecture is modular, with separate packages for APIs, connectors, data sources, engines, store persistence, and tests. So users can easily drop in their own analysis package
+### The AI-Native Reasoning Engine for Infrastructure Observability.
 
-![alt text](assets/becertain.png)
+**Be Certain** is a high-performance Python analytics engine designed to transform raw telemetry into actionable intelligence. By correlating metrics from **Mimir**, traces from **Tempo**, and logs from **Loki**, it provides deep-tier anomaly detection, predictive forecasting, and automated Root Cause Analysis (RCA).
+
+![Worfklow of Be Certain](assets/beobservant.png)
+
+Built with a modular, "drop-in" architecture, Be Certain allows SRE teams to utilize pre-built analysis modules or extend the engine with custom logic for specific domain needs.
+
+---
 
 ## 🚀 Key Features
 
-Be certain is currently being tested to ensure it is working as expected so we welcome PR to fix any bugs and issues
+> **Note:** Be Certain is currently in active development. We are refining our ML models and welcome PRs to help stabilize core heuristics.
 
-![alt text](assets/opening.png)
+* 🧠 **Multi-Dimensional Anomaly Detection:** Detect silent failures using advanced time-series pattern recognition.
+* 📈 **Intelligent Forecasting:** Move from reactive to proactive with predictive trajectory models and baseline bands.
+* 🔗 **Causal Correlation:** Understand the *why* by linking disparate events across logs and traces.
+* 📊 **SLO-Centric Monitoring:** Automate error-budget burn rate calculations and availability targets.
+* 🔌 **Plug-and-Play Connectors:** Native support for the LGTM stack (Loki, Grafana, Tempo, Mimir) and VictoriaMetrics.
+* 🧪 **Developer First:** Modular internal packages and a comprehensive `pytest` suite for reliable extensibility.
 
-- 🧠 **Anomaly Detection**: Multiple algorithms for identifying unusual patterns in time-series data.
-- 📈 **Forecasting & Baseline**: Predictive models and baseline computation for future trends.
-- 🔄 **Correlation & Causal Analysis**: Tools to understand relationships between metrics and events.
-- 📊 **SLO Monitoring**: Query templates and routes to compute service level objectives.
-- 🔗 **Connectors**: Built-in support for Loki, Mimir, Tempo, and Victoria metrics stores.
-- 🗃️ **Persistent Store**: Registry and client modules store results and configuration.
-- 🧪 **Comprehensive Tests**: Suite of pytest tests for each component and functionality.
+---
 
+## ⚙️ The Analysis Pipeline
 
-## ⚙️ Engine Analysis Pipeline
+The heart of Be Certain is the `POST /api/v1/analyze` endpoint. It orchestrates a staged pipeline that moves from raw data ingestion to high-level hypothesis ranking.
 
-`POST /api/v1/analyze` runs a staged pipeline through the `engine/` package:
+| Stage | Responsibility | Logic |
+| --- | --- | --- |
+| **Orchestration** | `analyzer.py` | The "Conductor." Manages the workflow from fetch to final report. |
+| **Ingestion** | `fetcher.py` | High-concurrency data retrieval with smart fallback mechanisms. |
+| **Detection** | `anomaly/*` | Identifies structural shifts and classifies severity in real-time. |
+| **Context** | `baseline/*` | Computes dynamic Z-score bands to interpret normal vs. abnormal behavior. |
+| **Shifts** | `changepoint/*` | Uses CUSUM logic to detect sudden oscillations or permanent shifts. |
+| **Signals** | `logs/*` & `traces/*` | Extracts log patterns and maps latency degradation across service spans. |
+| **Logic** | `correlation/*` | Temporally aligns anomalies to find "clumps" of evidence. |
+| **Causality** | `causal/*` | Applies Granger-causality and Bayesian posteriors to find the source. |
+| **Hypothesis** | `rca/*` | Ranks likely root causes based on evidence weights and topology. |
+| **Topology** | `topology/*` | Maps the "Blast Radius" and upstream dependencies of a failure. |
 
-| Engine Module | Responsibility |
-|---|---|
-| `engine/analyzer.py` | Orchestrates the full RCA workflow: fetch, metric analysis, logs/traces analysis, SLO checks, correlation, causal scoring, ranking, and final report assembly. |
-| `engine/fetcher.py` | Executes metric queries with bounded concurrency and fallback scrape behavior when query-range results are empty. |
-| `engine/anomaly/*` | Parses time series (`series.py`) and detects anomalies (`detection.py`) with severity and change-type classification. |
-| `engine/baseline/*` | Computes baseline bands and z-score references used by changepoint and anomaly interpretation. |
-| `engine/changepoint/*` | Detects structural shifts/oscillation in metric behavior using CUSUM-style logic. |
-| `engine/logs/*` | Detects log bursts and extracts repeated high-signal patterns from log streams. |
-| `engine/traces/*` | Computes latency degradation (`p50/p95/p99`, apdex, error rate) and detects error propagation across services. |
-| `engine/slo/*` | Calculates burn rate alerts and remaining error-budget status against target availability. |
-| `engine/correlation/*` | Links anomalies across metrics/logs/traces in temporal windows and computes event confidence. |
-| `engine/forecast/*` | Produces trajectory forecasts (time-to-threshold) and degradation signals from trends. |
-| `engine/causal/*` | Computes Granger-style pair causality, causal graph roots/interventions, and Bayesian category posteriors. |
-| `engine/rca/*` | Generates hypothesis objects from correlated evidence and scores/ranks likely root causes. |
-| `engine/ml/*` | Clusters anomalies and ranks causes with rule+ML blended scoring. |
-| `engine/topology/*` | Builds dependency graph views (blast radius, upstream roots, paths). |
-| `engine/events/*` + `engine/registry.py` | Maintains tenant-scoped deployment/event context and adaptive signal weights used in confidence blending. |
+---
 
-## 🛠️ Project Structure
+## 🛠️ Project Architecture
 
-The engine is the brain of the Be Certain and it is connected inside the Analyzer.py
+Be Certain is structured to be "import-friendly." Whether you are running the full API or just using the `engine` as a library, the structure is clean and predictable.
 
-```
+```text
 .
-├── Dockerfile
-├── LICENSE
-├── README.md
-├── api
-│   ├── __init__.py
-│   ├── requests
-│   │   └── __init__.py
-│   ├── responses
-│   │   └── __init__.py
-│   └── routes
-│       ├── __init__.py
-│       ├── analyze.py
-│       ├── causal.py
-│       ├── common.py
-│       ├── correlation.py
-│       ├── events.py
-│       ├── exception.py
-│       ├── forecast.py
-│       ├── health.py
-│       ├── logs.py
-│       ├── metrics.py
-│       ├── ml.py
-│       ├── slo.py
-│       ├── topology.py
-│       └── traces.py
-├── config.py
-├── connectors
-│   ├── __init__.py
-│   ├── loki.py
-│   ├── mimir.py
-│   ├── tempo.py
-│   └── victoria.py
-├── datasources
-│   ├── __init__.py
-│   ├── base.py
-│   ├── data_config.py
-│   ├── exceptions.py
-│   ├── factory.py
-│   ├── helpers.py
-│   ├── provider.py
-│   └── retry.py
-├── engine
-│   ├── __init__.py
-│   ├── analyzer.py
-│   ├── anomaly
-│   │   ├── __init__.py
-│   │   ├── detection.py
-│   │   └── series.py
-│   ├── baseline
-│   │   ├── __init__.py
-│   │   └── compute.py
-│   ├── causal
-│   │   ├── __init__.py
-│   │   ├── bayesian.py
-│   │   ├── granger.py
-│   │   └── graph.py
-│   ├── changepoint
-│   │   ├── __init__.py
-│   │   └── cusum.py
-│   ├── constants.py
-│   ├── correlation
-│   │   ├── __init__.py
-│   │   ├── signals.py
-│   │   └── temporal.py
-│   ├── dedup
-│   │   ├── __init__.py
-│   │   └── grouping.py
-│   ├── enums.py
-│   ├── events
-│   │   ├── __init__.py
-│   │   └── registry.py
-│   ├── fetcher.py
-│   ├── forecast
-│   │   ├── __init__.py
-│   │   ├── degradation.py
-│   │   └── trajectory.py
-│   ├── logs
-│   │   ├── __init__.py
-│   │   ├── frequency.py
-│   │   └── patterns.py
-│   ├── ml
-│   │   ├── __init__.py
-│   │   ├── clustering.py
-│   │   ├── ranking.py
-│   │   └── weights.py
-│   ├── rca
-│   │   ├── __init__.py
-│   │   ├── hypothesis.py
-│   │   └── scoring.py
-│   ├── registry.py
-│   ├── slo
-│   │   ├── __init__.py
-│   │   ├── budget.py
-│   │   └── burn.py
-│   ├── topology
-│   │   ├── __init__.py
-│   │   └── graph.py
-│   └── traces
-│       ├── __init__.py
-│       ├── errors.py
-│       └── latency.py
-├── main.py
-├── pytest.ini
-├── requirements.txt
-├── run.py
-├── store
-│   ├── __init__.py
-│   ├── baseline.py
-│   ├── client.py
-│   ├── events.py
-│   ├── granger.py
-│   ├── keys.py
-│   ├── registry.py
-│   └── weights.py
-└── tests
-    ├── conftest.py
-    ├── test_anomaly_detection.py
-    ├── test_api_models.py
-    ├── test_api_routes_events.py
-    ├── test_api_routes_slo.py
-    ├── test_correlation.py
-    ├── test_degradation.py
-    ├── test_engine_causal.py
-    ├── test_engine_weights.py
-    ├── test_enums.py
-    ├── test_events_registry.py
-    ├── test_fetcher.py
-    ├── test_forecast.py
-    ├── test_fuzzy.py
-    ├── test_helpers.py
-    ├── test_logs.py
-    ├── test_rca_hypothesis.py
-    ├── test_retry.py
-    ├── test_slo.py
-    ├── test_store_baseline.py
-    ├── test_store_client.py
-    ├── test_store_granger.py
-    ├── test_store_keys.py
-    ├── test_store_registry.py
-    ├── test_store_weights.py
-    └── test_topology.py
+├── api/                # FastAPI routes and Pydantic schemas
+├── connectors/         # Client wrappers for Loki, Mimir, Tempo
+├── datasources/        # Abstraction layer for multi-source data fetching
+├── engine/             # The "Brain" - individual analysis modules
+│   ├── anomaly/        # Detection heuristics
+│   ├── causal/         # Bayesian & Granger logic
+│   ├── ml/             # Clustering and scoring weights
+│   └── rca/            # Root cause ranking
+├── store/              # Persistence layer for results and baselines
+└── tests/              # Exhaustive component & integration tests
 ```
 
-## 📦 Installation
+---
+
+## 📦 Getting Started
+
+### 1. Installation
+
+Clone the repository into your workspace:
 
 ```bash
 git clone https://github.com/observantio/becertain.git BeCertain
 cd BeCertain
 ```
 
-## ⚙️ Usage
+### 2. Run with Docker
 
-Run the main application with Docker:
+The easiest way to get started is using the provided Dockerfile:
 
 ```bash
 docker build -t becertain:latest .
-docker run --rm -it \
-    -p 8000:8000 \
-    --name becertain \
-    becertain:latest
+docker run --rm -it -p 8000:8000 --name becertain becertain:latest
 ```
 
-or execute individual modules for development and debugging.
+### 3. Local Development
 
-## 🧩 Contributing
-
-Contributions are welcome! Please follow standard GitHub workflow with feature branches and pull requests. 
-
-Ensure tests pass:
+For local testing or debugging individual modules:
 
 ```bash
-pytest -q
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python run.py
 ```
 
-If you are contributing from the BeObservant mono-repo root, commits are also
-gated by `.pre-commit-config.yaml`, which runs this BeCertain test suite plus
-the other service checks before allowing a commit.
+---
+
+## 🤝 Contributing
+
+We love contributors! Whether it's a new causal algorithm or a bug fix in the OTel fetcher, your help is appreciated.
+
+**Developer Checklist:**
+
+1. Create a feature branch.
+2. Ensure all tests pass: `pytest -q`.
+3. Ensure your `pre-commit` hooks are active.
+
+---
 
 ## 📄 License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+Licensed under the **Apache License 2.0**. You are free to use, modify, and distribute this software, provided that all original attribution notices are preserved.
+
+*Disclaimer: This software is provided "as is" without warranty. The maintainers are not affiliated with third-party service providers mentioned in the connectors.*
+
