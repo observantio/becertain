@@ -245,6 +245,11 @@ class Settings(BaseSettings):
     analyzer_fetch_timeout_seconds: float = 8.0
     analyzer_metrics_timeout_seconds: float = 12.0
     analyzer_causal_timeout_seconds: float = 5.0
+    analyzer_max_metric_anomalies: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_METRIC_ANOMALIES", "250"))
+    analyzer_max_change_points: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CHANGE_POINTS", "200"))
+    analyzer_max_granger_pairs: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_GRANGER_PAIRS", "100"))
+    analyzer_max_clusters: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CLUSTERS", "30"))
+    analyzer_max_root_causes: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_ROOT_CAUSES", "15"))
 
     # event registry window
     events_window_seconds: float = 300.0
@@ -399,6 +404,9 @@ class Settings(BaseSettings):
     anomaly_min_sensitivity: float = 0.1
     anomaly_iso_n_estimators: int = 100
     anomaly_iso_random_state: int = 42
+    anomaly_compress_runs: bool = True
+    anomaly_run_gap_multiplier: float = 1.5
+    anomaly_run_keep_max: int = 3
 
     # ML ranking configuration
     ranking_severity_divisor: float = 8.0

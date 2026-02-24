@@ -25,6 +25,7 @@ class ChangePoint:
     value_after: float
     magnitude: float
     change_type: ChangeType
+    metric_name: str = "metric"
 
 
 def _classify(before: float, after: float, std: float) -> ChangeType:
@@ -51,7 +52,12 @@ def _detect_oscillation(arr: np.ndarray, window: int | None = None) -> List[int]
     return list(indices) if density > settings.cusum_oscillation_density_cutoff else []
 
 
-def detect(ts: List[float], vals: List[float], threshold_sigma: float | None = None) -> List[ChangePoint]:
+def detect(
+    ts: List[float],
+    vals: List[float],
+    threshold_sigma: float | None = None,
+    metric_name: str = "metric",
+) -> List[ChangePoint]:
     from config import settings
     if threshold_sigma is None:
         threshold_sigma = settings.cusum_threshold_sigma
@@ -81,6 +87,7 @@ def detect(ts: List[float], vals: List[float], threshold_sigma: float | None = N
             ctype = ChangeType.oscillation if i in oscillation_indices else _classify(before, after, sigma)
             results.append(ChangePoint(
                 index=i,
+                metric_name=metric_name or "metric",
                 timestamp=ts[i],
                 value_before=round(before, 4),
                 value_after=round(after, 4),

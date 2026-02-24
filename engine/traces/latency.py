@@ -67,12 +67,21 @@ def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> 
         bucket["total"] += 1
         bucket["op"] = operation
 
-        for span in (trace.get("spanSet") or {}).get("spans", []):
-            attrs = {a.get("key", ""): a.get("value", {}) for a in span.get("attributes", [])}
-            status_code = attrs.get("status.code", {}).get("stringValue", "").upper()
-            if status_code in ("STATUS_CODE_ERROR", "ERROR"):
-                bucket["errors"] += 1
-                break 
+        span_sets = []
+        if isinstance(trace.get("spanSet"), dict):
+            span_sets.append(trace.get("spanSet"))
+        if isinstance(trace.get("spanSets"), list):
+            span_sets.extend([s for s in trace.get("spanSets") if isinstance(s, dict)])
+        for span_set in span_sets:
+            for span in span_set.get("spans", []):
+                attrs = {a.get("key", ""): a.get("value", {}) for a in span.get("attributes", [])}
+                status_code = attrs.get("status.code", {}).get("stringValue", "").upper()
+                if status_code in ("STATUS_CODE_ERROR", "ERROR"):
+                    bucket["errors"] += 1
+                    break
+            else:
+                continue
+            break
 
     results: List[ServiceLatency] = []
 

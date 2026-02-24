@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import List, Set
 
 from api.responses import MetricAnomaly, LogBurst, ServiceLatency
+from config import settings
 
 
 @dataclass
@@ -42,7 +43,15 @@ def _tokenize(value: str) -> set[str]:
     return {part for part in raw.split() if part}
 
 
-from config import settings
+def _safe_float(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        number = float(value)
+        return number if number == number else None
+    except (TypeError, ValueError):
+        return None
+
 
 def correlate(
     metric_anomalies: List[MetricAnomaly],
@@ -53,10 +62,14 @@ def correlate(
     if window_seconds is None:
         window_seconds = settings.correlation_window_seconds
 
-    anchor_times: List[float] = sorted(
-        [a.timestamp for a in metric_anomalies]
-        + [getattr(b, "start", getattr(b, "window_start", None)) for b in log_bursts]
-    )
+    anchor_candidates: list[object] = [a.timestamp for a in metric_anomalies]
+    anchor_candidates.extend(getattr(b, "start", getattr(b, "window_start", None)) for b in log_bursts)
+    anchor_times: List[float] = []
+    for value in anchor_candidates:
+        parsed = _safe_float(value)
+        if parsed is not None:
+            anchor_times.append(parsed)
+    anchor_times.sort()
 
     if not anchor_times:
         return []
@@ -72,15 +85,16 @@ def correlate(
         w_end = anchor + window_seconds
 
         ma = [a for a in metric_anomalies if w_start <= a.timestamp <= w_end]
-        lb = [
-            b for b in log_bursts
-            if _overlap(
-                w_start,
-                w_end,
-                getattr(b, "start", getattr(b, "window_start", None)),
-                getattr(b, "end", getattr(b, "window_end", None)),
-            )
-        ]
+        lb = []
+        for burst in log_bursts:
+            burst_start = getattr(burst, "start", getattr(burst, "window_start", None))
+            burst_end = getattr(burst, "end", getattr(burst, "window_end", None))
+            burst_start = _safe_float(burst_start)
+            burst_end = _safe_float(burst_end)
+            if burst_start is None or burst_end is None:
+                continue
+            if _overlap(w_start, w_end, burst_start, burst_end):
+                lb.append(burst)
         metric_tokens: set[str] = set()
         for anomaly in ma:
             metric_tokens.update(_tokenize(getattr(anomaly, "metric_name", "")))

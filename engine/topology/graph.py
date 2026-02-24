@@ -37,17 +37,46 @@ class DependencyGraph:
 
     def from_spans(self, raw: Any) -> None:
         traces = raw.get("traces", []) if isinstance(raw, dict) else raw
+        if not isinstance(traces, list):
+            return
+
+        def _attr_value(attributes: list[dict], key: str) -> str:
+            for attr in attributes:
+                if attr.get("key") != key:
+                    continue
+                value = attr.get("value") or {}
+                text = (value.get("stringValue") or value.get("value") or "").strip()
+                if text:
+                    return text
+            return ""
+
         for trace in traces:
+            if not isinstance(trace, dict):
+                continue
             root = trace.get("rootServiceName")
-            for span_set in trace.get("spanSets") or []:
-                svc, peer = None, None
-                for attr in span_set.get("attributes") or []:
-                    k = attr.get("key")
-                    v = (attr.get("value") or {}).get("stringValue", "")
-                    if k == "service.name":
-                        svc = v
-                    elif k in ("peer.service", "db.name"):
-                        peer = v
+            span_sets: list[dict] = []
+            raw_sets = trace.get("spanSets")
+            if isinstance(raw_sets, list):
+                span_sets.extend(s for s in raw_sets if isinstance(s, dict))
+
+            single_set = trace.get("spanSet")
+            if isinstance(single_set, dict):
+                span_sets.append(single_set)
+
+            for span_set in span_sets:
+                svc = _attr_value(span_set.get("attributes") or [], "service.name")
+                peer = _attr_value(span_set.get("attributes") or [], "peer.service") or _attr_value(
+                    span_set.get("attributes") or [],
+                    "db.name",
+                )
+                for span in span_set.get("spans") or []:
+                    if not isinstance(span, dict):
+                        continue
+                    attrs = span.get("attributes") or []
+                    if not svc:
+                        svc = _attr_value(attrs, "service.name")
+                    if not peer:
+                        peer = _attr_value(attrs, "peer.service") or _attr_value(attrs, "db.name")
                 if svc and peer:
                     self.add_call(svc, peer)
                 elif root and peer:

@@ -29,9 +29,6 @@ def _mad_scores(arr: np.ndarray) -> np.ndarray:
     return settings.anomaly_mad_scale * (arr - median) / mad
 
 
-from config import settings
-
-
 def _cusum_changepoints(arr: np.ndarray, threshold: float | None = None) -> np.ndarray:
     if threshold is None:
         threshold = settings.cusum_threshold
@@ -74,6 +71,54 @@ def _severity(z: float, mad: float, iso: int) -> Severity:
     if iso == -1:
         score += settings.anomaly_iso_weight
     return Severity.from_score(min(score, 1.0))
+
+
+def _compress_runs(anomalies: List[MetricAnomaly]) -> List[MetricAnomaly]:
+    if not anomalies or len(anomalies) <= settings.anomaly_run_keep_max:
+        return anomalies
+
+    sorted_items = sorted(anomalies, key=lambda a: a.timestamp)
+    diffs = [
+        sorted_items[i].timestamp - sorted_items[i - 1].timestamp
+        for i in range(1, len(sorted_items))
+        if sorted_items[i].timestamp > sorted_items[i - 1].timestamp
+    ]
+    typical_step = float(np.median(diffs)) if diffs else 0.0
+    max_gap = (typical_step * float(settings.anomaly_run_gap_multiplier)) if typical_step > 0 else 0.0
+
+    groups: list[list[MetricAnomaly]] = []
+    current: list[MetricAnomaly] = [sorted_items[0]]
+    for item in sorted_items[1:]:
+        prev = current[-1]
+        same_type = item.change_type == prev.change_type
+        close_in_time = (max_gap <= 0.0) or ((item.timestamp - prev.timestamp) <= max_gap)
+        if same_type and close_in_time:
+            current.append(item)
+        else:
+            groups.append(current)
+            current = [item]
+    groups.append(current)
+
+    keep_max = max(1, int(settings.anomaly_run_keep_max))
+    compressed: list[MetricAnomaly] = []
+    for group in groups:
+        if len(group) <= keep_max:
+            compressed.extend(group)
+            continue
+
+        strongest = max(group, key=lambda a: (abs(a.z_score), abs(a.mad_score), a.severity.weight()))
+        selected: list[MetricAnomaly] = [group[0], strongest, group[-1]]
+        uniq = {}
+        for item in selected:
+            key = (item.timestamp, item.value, item.change_type.value)
+            uniq[key] = item
+        ranked = sorted(
+            uniq.values(),
+            key=lambda a: (a.timestamp, -abs(a.z_score)),
+        )
+        compressed.extend(ranked[:keep_max])
+
+    return sorted(compressed, key=lambda a: a.timestamp)
 
 
 def detect(
@@ -158,4 +203,6 @@ def detect(
             ),
         ))
 
+    if bool(settings.anomaly_compress_runs):
+        return _compress_runs(anomalies)
     return anomalies

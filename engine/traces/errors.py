@@ -27,12 +27,20 @@ def detect_propagation(tempo_response: Dict[str, Any]) -> List[ErrorPropagation]
         service_total[service] += 1
         has_error = False
 
-        for span in (trace.get("spanSet") or {}).get("spans", []):
-            attrs = {a.get("key", ""): a.get("value", {}) for a in span.get("attributes", [])}
-            status_code = attrs.get("status.code", {}).get("stringValue", "").upper()
-            if status_code in ("STATUS_CODE_ERROR", "ERROR"):
-                has_error = True
-                break  
+        span_sets = []
+        if isinstance(trace.get("spanSet"), dict):
+            span_sets.append(trace.get("spanSet"))
+        if isinstance(trace.get("spanSets"), list):
+            span_sets.extend([s for s in trace.get("spanSets") if isinstance(s, dict)])
+        for span_set in span_sets:
+            for span in span_set.get("spans", []):
+                attrs = {a.get("key", ""): a.get("value", {}) for a in span.get("attributes", [])}
+                status_code = attrs.get("status.code", {}).get("stringValue", "").upper()
+                if status_code in ("STATUS_CODE_ERROR", "ERROR"):
+                    has_error = True
+                    break
+            if has_error:
+                break
 
         if has_error:
             service_errors[service] += 1

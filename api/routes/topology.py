@@ -34,8 +34,7 @@ async def blast_radius(req: TopologyRequest) -> Dict[str, Any]:
     )
 
     graph = DependencyGraph()
-    if isinstance(raw, list):
-        graph.from_spans(raw)
+    graph.from_spans(raw)
 
     radius = graph.blast_radius(req.root_service, max_depth=req.max_depth)
     upstream = graph.find_upstream_roots(req.root_service)

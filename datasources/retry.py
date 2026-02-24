@@ -14,7 +14,7 @@ import asyncio
 import inspect
 import time
 from functools import wraps
-from typing import Any, Callable, Iterable, Type, TypeVar, Tuple
+from typing import Any, Callable, Type, TypeVar, Tuple, cast
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -44,7 +44,7 @@ def retry(
                         await asyncio.sleep(_delay)
                         _delay *= backoff
 
-            return async_wrapper 
+            return cast(F, async_wrapper)
 
         else:
             @wraps(func)
@@ -61,6 +61,6 @@ def retry(
                         time.sleep(_delay)
                         _delay *= backoff
 
-            return sync_wrapper 
+            return cast(F, sync_wrapper)
 
     return decorator

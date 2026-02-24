@@ -11,6 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+import math
 from typing import List
 
 from engine.correlation.temporal import CorrelatedEvent
@@ -48,10 +49,23 @@ def score_correlated_event(event: CorrelatedEvent) -> float:
     log_weight = float(configured.get("logs", configured.get("log", 0.25)))
     trace_weight = float(configured.get("traces", configured.get("errors", 0.35)))
 
-    metric_component = metric_weight * min(settings.correlation_score_max, len(event.metric_anomalies))
-    log_component = log_weight * min(settings.correlation_score_max, len(event.log_bursts))
-    trace_component = trace_weight * min(settings.correlation_score_max, len(event.service_latency))
-    return round(min(settings.correlation_score_max, metric_component + log_component + trace_component), 3)
+    # Use smooth count normalization to avoid flat scores across very different event sizes.
+    metric_factor = min(1.0, math.log1p(len(event.metric_anomalies)) / math.log1p(200.0))
+    log_factor = min(1.0, math.log1p(len(event.log_bursts)) / math.log1p(50.0))
+    trace_factor = min(1.0, math.log1p(len(event.service_latency)) / math.log1p(50.0))
+
+    metric_component = metric_weight * metric_factor
+    log_component = log_weight * log_factor
+    trace_component = trace_weight * trace_factor
+
+    max_metric_severity = max(
+        (a.severity.weight() for a in event.metric_anomalies),
+        default=1,
+    )
+    severity_boost = 0.1 * min(1.0, float(max_metric_severity) / 8.0)
+
+    blended = (metric_component + log_component + trace_component) * (0.7 + 0.3 * float(event.confidence))
+    return round(min(settings.correlation_score_max, blended + severity_boost), 3)
 
 
 def categorize(

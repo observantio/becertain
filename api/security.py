@@ -7,15 +7,19 @@ from __future__ import annotations
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from hmac import compare_digest
-from typing import Any, Optional
+import logging
+from typing import Any, Mapping, Optional
 
 import jwt
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from config import settings
 
 _context_var: ContextVar["InternalContext | None"] = ContextVar("becertain_internal_context", default=None)
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -110,21 +114,25 @@ def enforce_request_tenant(model: Any) -> Any:
         return model.copy(update={"tenant_id": tenant})
     try:
         model.tenant_id = tenant
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("Failed to apply tenant context to request model %s: %s", type(model).__name__, exc)
     return model
 
 
 def authenticate_internal_request(request: Request) -> InternalContext:
+    return authenticate_internal_headers(request.headers)
+
+
+def authenticate_internal_headers(headers: Mapping[str, str]) -> InternalContext:
     expected_service_token = settings.expected_service_token
     if not expected_service_token:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Missing expected service token")
 
-    provided_service_token = request.headers.get("x-service-token", "")
+    provided_service_token = headers.get("x-service-token", "")
     if not compare_digest(provided_service_token, expected_service_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid service token")
 
-    bearer = _parse_bearer(request.headers.get("authorization"))
+    bearer = _parse_bearer(headers.get("authorization"))
     payload = _decode_context_token(bearer)
     return _build_context(payload)
 
@@ -133,45 +141,20 @@ def _requires_internal_auth(path: str) -> bool:
     return path.startswith("/api/v1") and path != "/api/v1/ready"
 
 
-class InternalAuthMiddleware:
-    def __init__(self, app) -> None:
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = str(scope.get("path", ""))
+class InternalAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        path = str(request.url.path or "")
         if not _requires_internal_auth(path):
-            await self.app(scope, receive, send)
-            return
+            return await call_next(request)
 
-        request = Request(scope, receive=receive)
         try:
-            ctx = authenticate_internal_request(request)
+            ctx = authenticate_internal_headers(request.headers)
         except HTTPException as exc:
-            response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-            await response(scope, receive, send)
-            return
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
         token = set_internal_context(ctx)
-        scope.setdefault("state", {})
-        scope["state"]["internal_context"] = ctx
+        request.state.internal_context = ctx
         try:
-            await self.app(scope, receive, send)
+            return await call_next(request)
         finally:
             reset_internal_context(token)
-
-
-async def internal_auth_middleware(request: Request, call_next):
-    if not _requires_internal_auth(request.url.path):
-        return await call_next(request)
-
-    ctx = authenticate_internal_request(request)
-    token = set_internal_context(ctx)
-    request.state.internal_context = ctx
-    try:
-        return await call_next(request)
-    finally:
-        reset_internal_context(token)

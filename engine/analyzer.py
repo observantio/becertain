@@ -13,8 +13,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import math
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, cast
 
 import numpy as np
 
@@ -105,9 +106,20 @@ def _to_root_cause_model(rc) -> RootCauseModel:
         signals = payload.get("contributing_signals")
         if isinstance(signals, list):
             payload["contributing_signals"] = _normalize_signals(signals)
+        confidence: object = payload.get("confidence", 0.0)
+        if isinstance(confidence, (int, float, str)):
+            try:
+                confidence_value = float(confidence)
+            except ValueError:
+                confidence_value = 0.0
+        else:
+            confidence_value = 0.0
+        if not math.isfinite(confidence_value):
+            confidence_value = 0.0
+        payload["confidence"] = max(0.0, min(1.0, confidence_value))
         return payload
 
-    if dataclasses.is_dataclass(rc):
+    if dataclasses.is_dataclass(rc) and not isinstance(rc, type):
         return RootCauseModel(**_normalize_payload(dataclasses.asdict(rc)))
     if isinstance(rc, dict):
         return RootCauseModel(**_normalize_payload(dict(rc)))
@@ -139,6 +151,152 @@ def _trim_to_len(values: list[float], target_len: int) -> list[float]:
     return values[:target_len]
 
 
+def _dedupe_metric_anomalies(items: list) -> list:
+    selected: dict[tuple[str, int, str], object] = {}
+    for item in items:
+        key = (
+            str(getattr(item, "metric_name", "metric")),
+            int(round(float(getattr(item, "timestamp", 0.0)))),
+            str(getattr(getattr(item, "change_type", None), "value", getattr(item, "change_type", "unknown"))),
+        )
+        current = selected.get(key)
+        if current is None:
+            selected[key] = item
+            continue
+        curr_sev = getattr(current, "severity", Severity.low).weight()
+        next_sev = getattr(item, "severity", Severity.low).weight()
+        if next_sev > curr_sev:
+            selected[key] = item
+            continue
+        if next_sev == curr_sev:
+            if abs(float(getattr(item, "z_score", 0.0))) > abs(float(getattr(current, "z_score", 0.0))):
+                selected[key] = item
+    return sorted(selected.values(), key=lambda a: (a.timestamp, a.metric_name))
+
+
+def _dedupe_change_points(items: List[ChangePoint]) -> List[ChangePoint]:
+    selected: dict[tuple[str, int, str], ChangePoint] = {}
+    for item in items:
+        key = (
+            str(getattr(item, "metric_name", "metric")),
+            int(round(float(item.timestamp))),
+            str(getattr(item.change_type, "value", item.change_type)),
+        )
+        current = selected.get(key)
+        if current is None or float(item.magnitude) > float(current.magnitude):
+            selected[key] = item
+    return sorted(selected.values(), key=lambda c: (c.timestamp, c.metric_name))
+
+
+def _dedupe_by_metric_with_severity(items: list) -> list:
+    selected: dict[str, object] = {}
+    for item in items:
+        metric_name = str(getattr(item, "metric_name", "metric")).strip() or "metric"
+        current = selected.get(metric_name)
+        if current is None:
+            selected[metric_name] = item
+            continue
+        curr_sev = getattr(getattr(current, "severity", Severity.low), "weight", lambda: 0)()
+        next_sev = getattr(getattr(item, "severity", Severity.low), "weight", lambda: 0)()
+        if next_sev > curr_sev:
+            selected[metric_name] = item
+            continue
+        if next_sev == curr_sev:
+            curr_signal = abs(float(getattr(current, "degradation_rate", getattr(current, "slope_per_second", 0.0))))
+            next_signal = abs(float(getattr(item, "degradation_rate", getattr(item, "slope_per_second", 0.0))))
+            if next_signal > curr_signal:
+                selected[metric_name] = item
+    return sorted(
+        selected.values(),
+        key=lambda item: (
+            -getattr(getattr(item, "severity", Severity.low), "weight", lambda: 0)(),
+            str(getattr(item, "metric_name", "metric")),
+        ),
+    )
+
+
+def _cap_list(items: list, limit: int, key_func, reverse: bool = True) -> list:
+    capped_limit = max(1, int(limit))
+    if len(items) <= capped_limit:
+        return items
+    return sorted(items, key=key_func, reverse=reverse)[:capped_limit]
+
+
+def _limit_analyzer_output(
+    *,
+    metric_anomalies: list,
+    change_points: List[ChangePoint],
+    root_causes: list[RootCauseModel],
+    ranked_causes: list,
+    anomaly_clusters: list,
+    granger_results: list,
+    warnings: list[str],
+) -> tuple[list, List[ChangePoint], list[RootCauseModel], list, list, list]:
+    metric_anomalies_limited = _cap_list(
+        metric_anomalies,
+        settings.analyzer_max_metric_anomalies,
+        key_func=lambda item: (
+            getattr(getattr(item, "severity", Severity.low), "weight", lambda: 0)(),
+            abs(float(getattr(item, "z_score", 0.0))),
+            float(getattr(item, "timestamp", 0.0)),
+        ),
+    )
+    if len(metric_anomalies_limited) < len(metric_anomalies):
+        warnings.append(
+            f"Metric anomalies capped to top {len(metric_anomalies_limited)} from {len(metric_anomalies)} "
+            "by severity and z-score."
+        )
+
+    change_points_limited = _cap_list(
+        change_points,
+        settings.analyzer_max_change_points,
+        key_func=lambda item: (float(getattr(item, "magnitude", 0.0)), float(getattr(item, "timestamp", 0.0))),
+    )
+    if len(change_points_limited) < len(change_points):
+        warnings.append(
+            f"Change points capped to top {len(change_points_limited)} from {len(change_points)} by magnitude."
+        )
+
+    root_causes_limited = _cap_list(
+        root_causes,
+        settings.analyzer_max_root_causes,
+        key_func=lambda item: float(getattr(item, "confidence", 0.0)),
+    )
+    if len(root_causes_limited) < len(root_causes):
+        warnings.append(f"Root causes capped to top {len(root_causes_limited)} by confidence.")
+
+    ranked_limited = _cap_list(
+        ranked_causes,
+        settings.analyzer_max_root_causes,
+        key_func=lambda item: float(getattr(item, "final_score", 0.0)),
+    )
+
+    clusters_limited = _cap_list(
+        anomaly_clusters,
+        settings.analyzer_max_clusters,
+        key_func=lambda item: int(getattr(item, "size", 0)),
+    )
+    if len(clusters_limited) < len(anomaly_clusters):
+        warnings.append(f"Anomaly clusters capped to top {len(clusters_limited)} by size.")
+
+    granger_limited = _cap_list(
+        granger_results,
+        settings.analyzer_max_granger_pairs,
+        key_func=lambda item: float(getattr(item, "strength", 0.0)),
+    )
+    if len(granger_limited) < len(granger_results):
+        warnings.append(f"Granger pairs capped to top {len(granger_limited)} by strength.")
+
+    return (
+        metric_anomalies_limited,
+        change_points_limited,
+        root_causes_limited,
+        ranked_limited,
+        clusters_limited,
+        granger_limited,
+    )
+
+
 async def _process_one_metric_series(
     req: AnalyzeRequest,
     query_string: str,
@@ -153,7 +311,11 @@ async def _process_one_metric_series(
         baseline = baseline_compute(ts, vals, z_threshold=z_threshold)
 
     metric_anomalies = anomaly.detect(metric_name, ts, vals, req.sensitivity)
-    change_points = changepoint_detect(ts, vals, baseline.std or z_threshold)
+    try:
+        change_points = changepoint_detect(ts, vals, baseline.std or z_threshold, metric_name=metric_name)
+    except TypeError:
+        # Backward-compatible path for monkeypatched/legacy detector signatures.
+        change_points = changepoint_detect(ts, vals, baseline.std or z_threshold)
 
     threshold = next((v for k, v in FORECAST_THRESHOLDS.items() if k in query_string), None)
     if threshold:
@@ -177,7 +339,7 @@ async def _process_metrics(
     series_list: List[Tuple[str, str, list, list]] = [
         (query_string, metric_name, ts, vals)
         for query_string, resp in metrics_raw
-        for metric_name, ts, vals in anomaly.iter_series(resp)
+        for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string)
     ]
 
     tasks = [
@@ -194,10 +356,10 @@ async def _process_metrics(
 
     for (query_string, metric_name, _ts, vals), result in zip(series_list, processed):
         series_map[_series_key(query_string, metric_name)] = vals
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             log.warning("Metric stage failed for %s (%s): %s", metric_name, query_string, result)
             continue
-        metric_stage_anomalies, metric_stage_changes, fc, deg = result
+        metric_stage_anomalies, metric_stage_changes, fc, deg = cast(tuple[list, list, object, object], result)
         metric_anomalies.extend(metric_stage_anomalies)
         change_points.extend(metric_stage_changes)
         if fc:
@@ -209,8 +371,8 @@ async def _process_metrics(
 
 
 def _slo_series_pairs(err_raw, tot_raw, warnings: list[str]) -> list[tuple[list[float], list[float], list[float]]]:
-    err_series = list(anomaly.iter_series(err_raw))
-    tot_series = list(anomaly.iter_series(tot_raw))
+    err_series = list(anomaly.iter_series(err_raw, query_hint=SLO_ERROR_QUERY))
+    tot_series = list(anomaly.iter_series(tot_raw, query_hint=SLO_TOTAL_QUERY))
 
     if len(err_series) != len(tot_series):
         warnings.append(
@@ -317,15 +479,37 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         warnings.append(msg)
         log.warning(msg)
         metric_anomalies, change_points, forecasts, degradation_signals, series_map = [], [], [], [], {}
+    raw_metric_anomaly_count = len(metric_anomalies)
+    raw_change_point_count = len(change_points)
+    metric_anomalies = _dedupe_metric_anomalies(metric_anomalies)
+    change_points = _dedupe_change_points(change_points)
+    forecasts = _dedupe_by_metric_with_severity(forecasts)
+    degradation_signals = _dedupe_by_metric_with_severity(degradation_signals)
+    if raw_metric_anomaly_count > len(metric_anomalies):
+        warnings.append(
+            f"Deduplicated metric anomalies from {raw_metric_anomaly_count} to {len(metric_anomalies)} "
+            "to reduce duplicate series noise."
+        )
+    if raw_change_point_count > len(change_points):
+        warnings.append(
+            f"Deduplicated change points from {raw_change_point_count} to {len(change_points)} "
+            "to reduce duplicate series noise."
+        )
     log.debug("analyzer stage=metrics duration=%.4fs", time.perf_counter() - metrics_started)
 
     logs_started = time.perf_counter()
     log_bursts, log_patterns = [], []
-    if not isinstance(logs_raw, Exception):
+    if isinstance(logs_raw, dict):
         log_bursts = logs.detect_bursts(logs_raw)
         log_patterns = logs.analyze(logs_raw)
-    else:
+        if not logs_raw.get("data", {}).get("result"):
+            warnings.append("Logs query returned no entries in the selected window.")
+    elif isinstance(logs_raw, Exception):
         msg = f"Logs unavailable: {logs_raw}"
+        warnings.append(msg)
+        log.warning(msg)
+    else:
+        msg = f"Logs unavailable: unsupported response type {type(logs_raw).__name__}"
         warnings.append(msg)
         log.warning(msg)
     log.debug("analyzer stage=logs duration=%.4fs", time.perf_counter() - logs_started)
@@ -333,12 +517,18 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     traces_started = time.perf_counter()
     service_latency, error_propagation = [], []
     graph = DependencyGraph()
-    if not isinstance(traces_raw, Exception):
+    if isinstance(traces_raw, dict):
         service_latency = traces.analyze(traces_raw, req.apdex_threshold_ms)
         error_propagation = traces.detect_propagation(traces_raw)
         graph.from_spans(traces_raw)
-    else:
+        if not traces_raw.get("traces"):
+            warnings.append("Trace query returned no traces; topology and propagation insights are limited.")
+    elif isinstance(traces_raw, Exception):
         msg = f"Traces unavailable: {traces_raw}"
+        warnings.append(msg)
+        log.warning(msg)
+    else:
+        msg = f"Traces unavailable: unsupported response type {type(traces_raw).__name__}"
         warnings.append(msg)
         log.warning(msg)
     log.debug("analyzer stage=traces duration=%.4fs", time.perf_counter() - traces_started)
@@ -388,7 +578,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     causal_graph = CausalGraph()
     causal_graph.from_granger_results(fresh_granger)
 
-    deployment_events = await registry.events_in_window(tenant_id, req.start, req.end)
+    deployment_events = cast(list[dict], await registry.events_in_window(tenant_id, req.start, req.end))
     bayesian_scores = bayesian_score(
         has_deployment_event=bool(deployment_events),
         has_metric_spike=bool(metric_anomalies),
@@ -408,7 +598,31 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         event_registry=_build_compat_registry(deployment_events),
     )
     ranked_causes = rank(root_causes, correlated_events)
-    pydantic_root_causes = [_to_root_cause_model(r.root_cause) for r in ranked_causes]
+    pydantic_root_causes: list[RootCauseModel] = []
+    ranked_valid: list = []
+    for item in ranked_causes:
+        try:
+            pydantic_root_causes.append(_to_root_cause_model(item.root_cause))
+            ranked_valid.append(item)
+        except Exception as exc:
+            warnings.append(f"Dropped invalid root cause model during normalization: {exc}")
+    ranked_causes = ranked_valid
+    (
+        metric_anomalies,
+        change_points,
+        pydantic_root_causes,
+        ranked_causes,
+        anomaly_clusters,
+        fresh_granger,
+    ) = _limit_analyzer_output(
+        metric_anomalies=metric_anomalies,
+        change_points=change_points,
+        root_causes=pydantic_root_causes,
+        ranked_causes=ranked_causes,
+        anomaly_clusters=anomaly_clusters,
+        granger_results=fresh_granger,
+        warnings=warnings,
+    )
     log.debug("analyzer stage=causal duration=%.4fs", time.perf_counter() - causal_started)
 
     severity = _overall_severity(

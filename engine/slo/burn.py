@@ -38,9 +38,9 @@ def _get_windows() -> List[Tuple[str, float, float, Severity]]:
                 try:
                     sev_enum = Severity[sev]
                 except Exception:
-                    sev_enum = Severity.INFO if hasattr(Severity, "INFO") else list(Severity)[0]
+                    sev_enum = Severity.low
             else:
-                sev_enum = Severity(sev)
+                sev_enum = Severity.low
 
         windows.append((label, float(window_s), float(thr), sev_enum))
     return windows

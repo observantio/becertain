@@ -49,8 +49,8 @@ async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
 
     metric_anomalies = []
     if not isinstance(metrics_raw, Exception):
-        for resp in metrics_raw:
-            for metric_name, ts, vals in anomaly.iter_series(resp):
+        for query_string, resp in metrics_raw:
+            for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string):
                 metric_anomalies.extend(anomaly.detect(metric_name, ts, vals))
 
     log_bursts_list = []

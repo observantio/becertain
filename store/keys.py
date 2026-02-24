@@ -14,7 +14,8 @@ import hashlib
 
 
 def _slug(value: str) -> str:
-    return hashlib.md5(value.encode()).hexdigest()
+    # Internal cache keys do not require reversibility; use strong stable hashing.
+    return hashlib.sha256(value.encode()).hexdigest()[:32]
 
 
 def baseline(tenant_id: str, metric_name: str) -> str:

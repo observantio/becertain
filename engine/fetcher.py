@@ -90,7 +90,7 @@ async def fetch_metrics(
     max_parallel = max(1, int(settings.analyzer_max_parallel_metric_queries))
     sem = asyncio.Semaphore(max_parallel)
 
-    async def _query(q: str) -> Any:
+    async def _query(q: str) -> Dict[str, Any]:
         async with sem:
             return await provider.query_metrics(query=q, start=start, end=end, step=step)
 
@@ -102,6 +102,9 @@ async def fetch_metrics(
     for q, r in zip(queries, raw):
         if isinstance(r, Exception):
             log.warning("fetch_metrics query=%s failed: %s", q, r)
+            continue
+        if not isinstance(r, dict):
+            log.warning("fetch_metrics query=%s returned non-dict response: %s", q, type(r).__name__)
             continue
         cnt = len(r.get("data", {}).get("result", []))
         log.debug("fetch_metrics query=%s series=%d", q, cnt)

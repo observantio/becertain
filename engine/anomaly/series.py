@@ -11,7 +11,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterator, Tuple, Union
+import re
+from typing import Any, Dict, Iterator, Optional, Tuple, Union
 
 log = logging.getLogger(__name__)
 
@@ -27,13 +28,77 @@ _LABEL_PRIORITY = (
     "method",
     "status_code",
 )
+_GENERIC_METRIC_NAMES = {"metric", "unknown", "series"}
+_PROMQL_TOKEN_RE = re.compile(r"[a-zA-Z_:][a-zA-Z0-9_:]*")
+_PROMQL_EXCLUDED_TOKENS = {
+    "sum",
+    "rate",
+    "irate",
+    "avg",
+    "min",
+    "max",
+    "count",
+    "by",
+    "without",
+    "histogram_quantile",
+    "quantile_over_time",
+    "increase",
+    "delta",
+    "clamp_min",
+    "clamp_max",
+    "topk",
+    "bottomk",
+    "vector",
+    "service",
+    "status_code",
+    "client",
+    "server",
+    "cpu",
+    "le",
+}
+
+
+def _metric_hint_from_query(query_hint: Optional[str]) -> Optional[str]:
+    text = str(query_hint or "").strip()
+    if not text:
+        return None
+    tokens = _PROMQL_TOKEN_RE.findall(text)
+    if not tokens:
+        return None
+    candidates = [
+        token
+        for token in tokens
+        if token.lower() not in _PROMQL_EXCLUDED_TOKENS
+        and "_" in token
+        and not token.startswith("__")
+    ]
+    if candidates:
+        return candidates[0]
+    return None
+
+
+def _fallback_metric_name(metric: dict[str, Any], query_hint: Optional[str]) -> str:
+    hinted = _metric_hint_from_query(query_hint)
+    if hinted:
+        return hinted
+    for key in _LABEL_PRIORITY:
+        value = metric.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return f"series_{key}"
+    return "unknown_metric"
 
 
 def iter_series(
     mimir_response: Union[Dict[str, Any], Tuple[Any, Dict[str, Any]]],
+    query_hint: Optional[str] = None,
 ) -> Iterator[Tuple[str, list, list]]:
     if isinstance(mimir_response, tuple):
         if len(mimir_response) == 2 and isinstance(mimir_response[1], dict):
+            if query_hint is None and isinstance(mimir_response[0], str):
+                query_hint = mimir_response[0]
             mimir_response = mimir_response[1]
         else:
             log.warning("iter_series received unexpected tuple shape: %r", mimir_response)
@@ -53,7 +118,9 @@ def iter_series(
             continue
 
         metric = result.get("metric", {})
-        base = str(metric.get("__name__") or "metric")
+        base = str(metric.get("__name__") or "").strip()
+        if not base or base.lower() in _GENERIC_METRIC_NAMES:
+            base = _fallback_metric_name(metric, query_hint)
         label_parts: list[str] = []
         for key in _LABEL_PRIORITY:
             value = metric.get(key)
@@ -78,7 +145,9 @@ def iter_series(
                 ts.append(float(p[0]))
                 vals.append(float(p[1]))
             except (ValueError, TypeError, IndexError):
-                ts.append(float("nan"))
-                vals.append(float("nan"))
+                continue
+
+        if len(ts) < 2 or len(vals) < 2:
+            continue
 
         yield label, ts, vals

@@ -38,7 +38,7 @@ async def metric_anomalies(req: MetricRequest) -> List[MetricAnomaly]:
     )
 
     results = []
-    for metric, ts, vals in anomaly.iter_series(raw):
+    for metric, ts, vals in anomaly.iter_series(raw, query_hint=req.query):
         results.extend(anomaly.detect(metric, ts, vals, req.sensitivity))
     return sorted(results, key=lambda a: a.timestamp)
 
@@ -54,7 +54,14 @@ async def metric_changepoints(req: ChangepointRequest) -> List[ChangePoint]:
     )
 
     results: List[ChangePoint] = []
-    for _, ts, vals in anomaly.iter_series(raw):
+    for metric_name, ts, vals in anomaly.iter_series(raw, query_hint=req.query):
         baseline = baseline_compute(ts, vals)
-        results.extend(changepoint_detect(ts, vals, threshold_sigma=req.threshold_sigma or baseline.std))
+        results.extend(
+            changepoint_detect(
+                ts,
+                vals,
+                threshold_sigma=req.threshold_sigma or baseline.std,
+                metric_name=metric_name,
+            )
+        )
     return sorted(results, key=lambda c: c.timestamp)

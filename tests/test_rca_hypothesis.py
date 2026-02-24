@@ -76,3 +76,37 @@ def test_generate_with_simple_event():
     assert isinstance(root, list)
     if root:
         assert isinstance(root[0], RootCause)
+
+
+def test_generate_deduplicates_same_hypothesis_events():
+    anomaly = MetricAnomaly(
+        metric_id="m",
+        metric_name="system_memory_usage_bytes",
+        timestamp=1,
+        value=100,
+        change_type=ChangeType.spike,
+        z_score=10,
+        mad_score=5,
+        isolation_score=0.0,
+        expected_range=(0, 1),
+        severity=Severity.high,
+        description="",
+    )
+    ev1 = CorrelatedEvent(
+        window_start=1,
+        window_end=2,
+        metric_anomalies=[anomaly],
+        log_bursts=[],
+        service_latency=[],
+        confidence=0.6,
+    )
+    ev2 = CorrelatedEvent(
+        window_start=1.5,
+        window_end=2.5,
+        metric_anomalies=[anomaly],
+        log_bursts=[],
+        service_latency=[],
+        confidence=0.7,
+    )
+    causes = generate([], [], [], [], [], correlated_events=[ev1, ev2], graph=None, event_registry=None)
+    assert len(causes) == 1

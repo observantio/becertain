@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -18,15 +19,15 @@ class RcaJob(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
-    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    started_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
     request_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     summary_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    deleted_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delete_requested_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     report = relationship("RcaReport", back_populates="job", uselist=False, cascade="all, delete-orphan")
@@ -49,8 +50,8 @@ class RcaReport(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     owner_user_id: Mapped[str] = mapped_column(String(128), nullable=False)
     result_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    expires_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     job = relationship("RcaJob", back_populates="report")
 

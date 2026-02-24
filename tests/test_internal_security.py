@@ -1,7 +1,9 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import asyncio
+import json
+
 from pydantic import BaseModel
 import jwt
+from starlette.responses import JSONResponse
 
 from api.security import (
     InternalAuthMiddleware,
@@ -14,22 +16,11 @@ from api.security import (
 from config import settings
 
 
-def _build_app():
-    app = FastAPI()
-    app.add_middleware(InternalAuthMiddleware)
-
-    @app.get("/api/v1/tenant")
-    async def tenant_echo(tenant_id: str = "spoofed-tenant"):
-        return {"tenant_id": get_context_tenant(tenant_id)}
-
-    return app
-
-
 def _headers(payload):
     token = jwt.encode(payload, settings.context_verify_key, algorithm="HS256")
     return {
-        "X-Service-Token": settings.expected_service_token,
-        "Authorization": f"Bearer {token}",
+        "x-service-token": settings.expected_service_token,
+        "authorization": f"Bearer {token}",
     }
 
 
@@ -41,29 +32,63 @@ def _set_security_defaults():
     settings.context_algorithms = "HS256"
 
 
+async def _run_request(path: str, headers: dict[str, str]):
+    async def app(scope, receive, send):
+        payload = {"tenant_id": get_context_tenant("spoofed-tenant")}
+        response = JSONResponse(payload)
+        await response(scope, receive, send)
+
+    middleware = InternalAuthMiddleware(app)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "query_string": b"",
+        "headers": [(k.encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+
+    messages: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    await middleware(scope, receive, send)
+
+    status = next(m["status"] for m in messages if m["type"] == "http.response.start")
+    body = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
+    data = json.loads(body.decode("utf-8")) if body else {}
+    return status, data
+
+
 def test_missing_service_token_rejected():
     _set_security_defaults()
-    app = _build_app()
-    client = TestClient(app)
-    resp = client.get("/api/v1/tenant")
-    assert resp.status_code == 401
+    status, _ = asyncio.run(_run_request("/api/v1/tenant", headers={}))
+    assert status == 401
 
 
 def test_invalid_context_token_rejected():
     _set_security_defaults()
-    app = _build_app()
-    client = TestClient(app)
-    resp = client.get(
-        "/api/v1/tenant",
-        headers={"X-Service-Token": settings.expected_service_token, "Authorization": "Bearer invalid"},
+    status, _ = asyncio.run(
+        _run_request(
+            "/api/v1/tenant",
+            headers={"x-service-token": settings.expected_service_token, "authorization": "Bearer invalid"},
+        )
     )
-    assert resp.status_code == 401
+    assert status == 401
 
 
 def test_valid_context_enforces_tenant_scope():
     _set_security_defaults()
-    app = _build_app()
-    client = TestClient(app)
     headers = _headers(
         {
             "iss": settings.context_issuer,
@@ -76,9 +101,9 @@ def test_valid_context_enforces_tenant_scope():
             "username": "alice",
         }
     )
-    resp = client.get("/api/v1/tenant?tenant_id=spoofed", headers=headers)
-    assert resp.status_code == 200
-    assert resp.json()["tenant_id"] == "tenant-from-context"
+    status, payload = asyncio.run(_run_request("/api/v1/tenant", headers=headers))
+    assert status == 200
+    assert payload["tenant_id"] == "tenant-from-context"
 
 
 def test_enforce_request_tenant_overrides_payload():

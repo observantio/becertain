@@ -74,7 +74,7 @@ async def granger_causality(
 
     series_map: Dict[str, list] = {}
     for query_string, resp in metrics_raw:
-        for metric_name, _, vals in anomaly.iter_series(resp):
+        for metric_name, _, vals in anomaly.iter_series(resp, query_hint=query_string):
             series_key = f"{query_string}::{metric_name}"
             series_map[series_key] = vals
 

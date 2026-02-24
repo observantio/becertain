@@ -43,8 +43,8 @@ async def slo_burn(req: SloRequest) -> Dict[str, Any]:
         provider.query_metrics(query=total_q, start=req.start, end=req.end, step=req.step)
     )
 
-    err_series = list(anomaly.iter_series(err_raw))
-    tot_series = list(anomaly.iter_series(tot_raw))
+    err_series = list(anomaly.iter_series(err_raw, query_hint=error_q))
+    tot_series = list(anomaly.iter_series(tot_raw, query_hint=total_q))
 
     alerts = []
     budget = None

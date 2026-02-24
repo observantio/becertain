@@ -10,7 +10,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
-from engine.anomaly.detection import _mad_scores, _cusum_changepoints, _change_type, _severity, detect
+from api.responses import MetricAnomaly
+from engine.anomaly.detection import _mad_scores, _cusum_changepoints, _change_type, _severity, _compress_runs, detect
 from engine.enums import ChangeType, Severity
 
 
@@ -41,3 +42,26 @@ def test_detect_simple():
     assert isinstance(anomalies, list)
     if anomalies:
         assert hasattr(anomalies[0], 'change_type')
+
+
+def test_compress_runs_limits_noisy_sequences(monkeypatch):
+    monkeypatch.setattr("config.settings.anomaly_run_keep_max", 3)
+    items = [
+        MetricAnomaly(
+            metric_name="m",
+            timestamp=float(i),
+            value=float(i),
+            change_type=ChangeType.spike,
+            z_score=2.5 + i * 0.1,
+            mad_score=2.0,
+            isolation_score=-0.5,
+            expected_range=(0.0, 1.0),
+            severity=Severity.high,
+            description="",
+        )
+        for i in range(10)
+    ]
+    compressed = _compress_runs(items)
+    assert len(compressed) <= 3
+    assert compressed[0].timestamp == 0.0
+    assert compressed[-1].timestamp == 9.0

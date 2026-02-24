@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import json
 import uuid
@@ -26,6 +27,26 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _coerce_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    return _utcnow()
+
+
+def _coerce_optional_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    return _coerce_datetime(value)
+
+
+def _duration_ms(start: Any, end: Any) -> int:
+    start_dt = _coerce_datetime(start)
+    end_dt = _coerce_datetime(end)
+    return max(0, int((end_dt - start_dt).total_seconds() * 1000))
+
+
 @dataclass
 class JobView:
     job_id: str
@@ -46,11 +67,11 @@ def _to_view(row: RcaJob) -> JobView:
         job_id=row.job_id,
         report_id=row.report_id,
         status=JobStatus(row.status),
-        created_at=row.created_at,
+        created_at=_coerce_datetime(row.created_at),
         tenant_id=row.tenant_id,
         requested_by=row.requested_by,
-        started_at=row.started_at,
-        finished_at=row.finished_at,
+        started_at=_coerce_optional_datetime(row.started_at),
+        finished_at=_coerce_optional_datetime(row.finished_at),
         duration_ms=row.duration_ms,
         error=row.error,
         summary_preview=row.summary_preview,
@@ -70,11 +91,13 @@ def _decode_cursor(cursor: Optional[str]) -> tuple[Optional[datetime], Optional[
         raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
         payload = json.loads(raw)
         created_at = datetime.fromisoformat(str(payload.get("created_at")))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
         job_id = str(payload.get("job_id") or "").strip()
         if not job_id:
             return None, None
         return created_at, job_id
-    except Exception:
+    except (ValueError, TypeError, json.JSONDecodeError, binascii.Error):
         return None, None
 
 
@@ -104,7 +127,7 @@ class RcaJobService:
                 row.finished_at = now
                 row.error = "Interrupted due to process restart before completion"
                 anchor = row.started_at or row.created_at
-                row.duration_ms = int((now - anchor).total_seconds() * 1000)
+                row.duration_ms = _duration_ms(anchor, now)
 
     async def cleanup_retention(self) -> None:
         await asyncio.to_thread(self._cleanup_retention_sync)
@@ -212,7 +235,7 @@ class RcaJobService:
             row.status = JobStatus.COMPLETED.value
             row.finished_at = finished_at
             anchor = row.started_at or row.created_at
-            row.duration_ms = int((finished_at - anchor).total_seconds() * 1000)
+            row.duration_ms = _duration_ms(anchor, finished_at)
             row.summary_preview = str(result.get("summary") or "")[:280] or None
             row.error = None
             existing = db.get(RcaReport, row.report_id)
@@ -241,7 +264,7 @@ class RcaJobService:
             row.status = JobStatus.FAILED.value
             row.finished_at = finished_at
             anchor = row.started_at or row.created_at
-            row.duration_ms = int((finished_at - anchor).total_seconds() * 1000)
+            row.duration_ms = _duration_ms(anchor, finished_at)
             row.error = (error or "Analysis failed")[:500]
 
     def _mark_cancelled(self, job_id: str, finished_at: datetime, error: str) -> None:
@@ -252,7 +275,7 @@ class RcaJobService:
             row.status = JobStatus.CANCELLED.value
             row.finished_at = finished_at
             anchor = row.started_at or row.created_at
-            row.duration_ms = int((finished_at - anchor).total_seconds() * 1000)
+            row.duration_ms = _duration_ms(anchor, finished_at)
             row.error = error[:500]
 
     async def list_jobs(

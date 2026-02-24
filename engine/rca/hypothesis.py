@@ -41,19 +41,55 @@ class RootCause:
     deployment: Optional[DeploymentEvent] = None
 
 
+def _evidence_score(entries: List[str]) -> float:
+    total = 0.0
+    for entry in entries:
+        text = str(entry)
+        if "=" not in text:
+            continue
+        try:
+            total += float(text.split("=", 1)[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+    return total
+
+
+def _dedupe_causes(causes: List[RootCause]) -> List[RootCause]:
+    selected: dict[tuple[str, str], RootCause] = {}
+    for cause in causes:
+        key = (str(cause.category.value), str(cause.hypothesis))
+        current = selected.get(key)
+        if current is None:
+            selected[key] = cause
+            continue
+        if cause.confidence > current.confidence:
+            winner, loser = cause, current
+        elif cause.confidence < current.confidence:
+            winner, loser = current, cause
+        else:
+            winner, loser = (cause, current) if _evidence_score(cause.evidence) >= _evidence_score(current.evidence) else (current, cause)
+        winner.affected_services = list(dict.fromkeys((winner.affected_services or []) + (loser.affected_services or [])))
+        selected[key] = winner
+    return list(selected.values())
+
+
 def _signals_from_event(event: CorrelatedEvent) -> List[str]:
     signals: list[str] = []
     metric_names = list(dict.fromkeys(a.metric_name for a in event.metric_anomalies if a.metric_name))
     if metric_names:
+        # Keep aggregate token for compatibility with historical ranking/tests.
+        signals.append("metrics")
         signals.extend([f"metric:{name}" for name in metric_names[:3]])
     if event.log_bursts:
+        signals.append("logs")
         signals.append("log:bursts")
     latency_services = list(dict.fromkeys(s.service for s in event.service_latency if getattr(s, "service", None)))
     if latency_services:
+        signals.append("traces")
         signals.extend([f"trace:{service}" for service in latency_services[:2]])
     if not signals:
         return ["metrics"]
-    return signals
+    return list(dict.fromkeys(signals))
 
 
 def _action_for_category(category: RcaCategory, service: str = "") -> str:
@@ -161,6 +197,7 @@ def generate(
             recommended_action="Review high-severity log patterns for error root cause.",
         ))
 
+    causes = _dedupe_causes(causes)
     causes.sort(key=lambda c: c.confidence, reverse=True)
     min_conf = float(settings.rca_min_confidence_display)
     filtered = [cause for cause in causes if cause.confidence >= min_conf]

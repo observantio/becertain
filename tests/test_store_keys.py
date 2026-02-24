@@ -9,7 +9,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import pytest
-import hashlib
 
 from store import keys
 
@@ -17,8 +16,10 @@ from store import keys
 def test_slug_consistency():
     v = "hello"
     s1 = keys._slug(v)
-    s2 = hashlib.md5(v.encode()).hexdigest()
+    s2 = keys._slug(v)
     assert s1 == s2
+    assert len(s1) == 32
+    assert all(c in "0123456789abcdef" for c in s1)
 
 
 def test_keys_format():

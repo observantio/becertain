@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 from fastapi import HTTPException
 
@@ -51,7 +51,7 @@ def handle_exceptions(func: F) -> F:
             except Exception as exc:  
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        return async_wrapper 
+        return cast(F, async_wrapper)
 
     @wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  
@@ -62,4 +62,4 @@ def handle_exceptions(func: F) -> F:
         except Exception as exc: 
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return sync_wrapper
+    return cast(F, sync_wrapper)

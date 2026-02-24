@@ -47,8 +47,8 @@ async def metric_trajectory(
     )
 
     results: List[Dict[str, Any]] = []
-    for resp in metrics_raw:
-        for metric_name, ts, vals in anomaly.iter_series(resp):
+    for query_string, resp in metrics_raw:
+        for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string):
             threshold = next(
                 (v for k, v in FORECAST_THRESHOLDS.items() if k in metric_name), None
             )

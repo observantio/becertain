@@ -55,3 +55,46 @@ def test_link_logs_to_metrics_uses_window_start_fields():
     links = link_logs_to_metrics([make_anomaly(10)], [make_logburst(9, 11)], max_lag_seconds=20)
     assert links
     assert links[0].log_stream == "unknown"
+
+
+def test_correlate_ignores_invalid_logburst_timestamps():
+    anomalies = [make_anomaly(100)]
+
+    class BrokenBurst:
+        start = "bad"
+        end = "bad"
+
+    bursts = [BrokenBurst()]
+    events = correlate(anomalies, bursts, [], window_seconds=30)
+    assert events == []
+
+
+def test_correlate_only_links_temporally_and_name_relevant_latency():
+    anomalies = [
+        MetricAnomaly(
+            metric_name="system_memory_usage_bytes{service=checkout}",
+            timestamp=100,
+            value=1,
+            change_type=ChangeType.spike,
+            z_score=4,
+            mad_score=4,
+            isolation_score=0,
+            expected_range=(0, 1),
+            severity=Severity.high,
+            description="",
+        )
+    ]
+    bursts = [make_logburst(95, 105)]
+    latency = [
+        ServiceLatency(
+            service="checkout", operation="o", p50_ms=10, p95_ms=20, p99_ms=30,
+            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low
+        ),
+        ServiceLatency(
+            service="inventory", operation="o", p50_ms=10, p95_ms=20, p99_ms=30,
+            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low
+        ),
+    ]
+    events = correlate(anomalies, bursts, latency, window_seconds=30)
+    assert events
+    assert [s.service for s in events[0].service_latency] == ["checkout"]
