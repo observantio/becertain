@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine import traces
 from api.requests import TraceRequest
 from api.responses import ServiceLatency
@@ -26,6 +27,7 @@ router = APIRouter(tags=["Traces"])
 @router.post("/anomalies/traces", response_model=List[ServiceLatency])
 @handle_exceptions
 async def trace_anomalies(req: TraceRequest) -> List[ServiceLatency]:
+    req = enforce_request_tenant(req)
     filters: Dict[str, Any] = {}
     filters["service.name"] = req.service or DEFAULT_SERVICE_NAME
     raw = await safe_call(

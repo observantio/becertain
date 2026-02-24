@@ -16,6 +16,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine import anomaly, logs
 from config import DEFAULT_METRIC_QUERIES
 from engine.correlation import correlate, link_logs_to_metrics
@@ -29,6 +30,7 @@ router = APIRouter(tags=["Correlation"])
 @router.post("/correlate", summary="Cross-signal temporal correlation without full RCA")
 @handle_exceptions
 async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
+    req = enforce_request_tenant(req)
     log_query = req.log_query or (
         '{service=~"' + "|".join(req.services) + '"}' if req.services else '{job=~".+"}'
     )

@@ -31,6 +31,17 @@ def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> bool
     return a_start <= b_end and b_start <= a_end
 
 
+def _tokenize(value: str) -> set[str]:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return set()
+    for ch in "{}[]=,():|\"'":
+        raw = raw.replace(ch, " ")
+    for ch in ".-/":
+        raw = raw.replace(ch, " ")
+    return {part for part in raw.split() if part}
+
+
 from config import settings
 
 def correlate(
@@ -70,7 +81,18 @@ def correlate(
                 getattr(b, "end", getattr(b, "window_end", None)),
             )
         ]
-        sl = list(service_latency) if (ma or lb) else []
+        metric_tokens: set[str] = set()
+        for anomaly in ma:
+            metric_tokens.update(_tokenize(getattr(anomaly, "metric_name", "")))
+
+        sl = []
+        if metric_tokens:
+            for latency in service_latency:
+                service_name = str(getattr(latency, "service", "")).strip().lower()
+                if not service_name:
+                    continue
+                if service_name in metric_tokens or any(service_name in token or token in service_name for token in metric_tokens):
+                    sl.append(latency)
 
         sig = len(ma) + len(lb) + len(sl)
         if sig < 2:

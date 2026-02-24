@@ -24,6 +24,7 @@ from api.routes.events import router as events_router
 from api.routes.forecast import router as forecast_router
 from api.routes.causal import router as causal_router
 from api.routes.ml import router as ml_router
+from api.routes.jobs import router as jobs_router
 
 router = APIRouter()
 
@@ -39,5 +40,6 @@ router.include_router(events_router)
 router.include_router(forecast_router)
 router.include_router(causal_router)
 router.include_router(ml_router)
+router.include_router(jobs_router)
 
 __all__ = ["router"]

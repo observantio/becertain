@@ -21,6 +21,7 @@ from fastapi import HTTPException
 
 from datasources.data_config import DataSourceSettings
 from datasources.provider import DataSourceProvider
+from api.security import get_context_tenant
 
 
 _T = TypeVar("_T")
@@ -28,10 +29,11 @@ _providers: dict[str, DataSourceProvider] = {}
 
 
 def get_provider(tenant_id: str) -> DataSourceProvider:
-    provider = _providers.get(tenant_id)
+    resolved_tenant_id = get_context_tenant(tenant_id)
+    provider = _providers.get(resolved_tenant_id)
     if provider is None:
-        provider = DataSourceProvider(tenant_id=tenant_id, settings=DataSourceSettings())
-        _providers[tenant_id] = provider
+        provider = DataSourceProvider(tenant_id=resolved_tenant_id, settings=DataSourceSettings())
+        _providers[resolved_tenant_id] = provider
     return provider
 
 

@@ -14,6 +14,12 @@ from typing import Dict, List, Tuple, Optional
 from pydantic_settings import BaseSettings
 
 
+def _to_bool(value: Optional[str], default: bool = False) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 BASELINE_TTL: int = int(os.getenv("BASELINE_TTL", "86400"))   
 GRANGER_TTL: int = int(os.getenv("GRANGER_TTL", "604800")) 
@@ -42,6 +48,19 @@ BECERTAIN_TRACES_TEMPO_URL = os.getenv("BECERTAIN_TRACES_TEMPO_URL", "http://tem
 
 BECERTAIN_CONNECTOR_TIMEOUT = int(os.getenv("BECERTAIN_CONNECTOR_TIMEOUT", "10"))
 BECERTAIN_STARTUP_TIMEOUT = int(os.getenv("BECERTAIN_STARTUP_TIMEOUT", "120"))
+BECERTAIN_EXPECTED_SERVICE_TOKEN = os.getenv("BECERTAIN_EXPECTED_SERVICE_TOKEN", "")
+BECERTAIN_CONTEXT_VERIFY_KEY = os.getenv("BECERTAIN_CONTEXT_VERIFY_KEY", "")
+BECERTAIN_CONTEXT_ISSUER = os.getenv("BECERTAIN_CONTEXT_ISSUER", "beobservant-main")
+BECERTAIN_CONTEXT_AUDIENCE = os.getenv("BECERTAIN_CONTEXT_AUDIENCE", "becertain")
+BECERTAIN_CONTEXT_ALGORITHMS = os.getenv("BECERTAIN_CONTEXT_ALGORITHMS", "HS256")
+BECERTAIN_SSL_ENABLED = _to_bool(os.getenv("BECERTAIN_SSL_ENABLED"), default=False)
+BECERTAIN_SSL_CERTFILE = os.getenv("BECERTAIN_SSL_CERTFILE", "")
+BECERTAIN_SSL_KEYFILE = os.getenv("BECERTAIN_SSL_KEYFILE", "")
+BECERTAIN_DATABASE_URL = os.getenv("BECERTAIN_DATABASE_URL", "")
+BECERTAIN_ANALYZE_MAX_CONCURRENCY = int(os.getenv("BECERTAIN_ANALYZE_MAX_CONCURRENCY", "2"))
+BECERTAIN_ANALYZE_TIMEOUT_SECONDS = int(os.getenv("BECERTAIN_ANALYZE_TIMEOUT_SECONDS", "90"))
+BECERTAIN_ANALYZE_REPORT_RETENTION_DAYS = int(os.getenv("BECERTAIN_ANALYZE_REPORT_RETENTION_DAYS", "7"))
+BECERTAIN_ANALYZE_JOB_TTL_DAYS = int(os.getenv("BECERTAIN_ANALYZE_JOB_TTL_DAYS", "30"))
 
 # tenant defaults
 BECERTAIN_DEFAULT_TENANT_ID = os.getenv("BECERTAIN_DEFAULT_TENANT_ID", "Av45ZchZsQdKjN8XyG")
@@ -120,6 +139,19 @@ class Settings(BaseSettings):
 
     connector_timeout: int = BECERTAIN_CONNECTOR_TIMEOUT
     startup_timeout: int = BECERTAIN_STARTUP_TIMEOUT
+    expected_service_token: str = BECERTAIN_EXPECTED_SERVICE_TOKEN
+    context_verify_key: str = BECERTAIN_CONTEXT_VERIFY_KEY
+    context_issuer: str = BECERTAIN_CONTEXT_ISSUER
+    context_audience: str = BECERTAIN_CONTEXT_AUDIENCE
+    context_algorithms: str = BECERTAIN_CONTEXT_ALGORITHMS
+    ssl_enabled: bool = BECERTAIN_SSL_ENABLED
+    ssl_certfile: str = BECERTAIN_SSL_CERTFILE
+    ssl_keyfile: str = BECERTAIN_SSL_KEYFILE
+    database_url: str = BECERTAIN_DATABASE_URL
+    analyze_max_concurrency: int = BECERTAIN_ANALYZE_MAX_CONCURRENCY
+    analyze_timeout_seconds: int = BECERTAIN_ANALYZE_TIMEOUT_SECONDS
+    analyze_report_retention_days: int = BECERTAIN_ANALYZE_REPORT_RETENTION_DAYS
+    analyze_job_ttl_days: int = BECERTAIN_ANALYZE_JOB_TTL_DAYS
 
     slo_error_query_template: str = SLO_ERROR_QUERY_TEMPLATE
     slo_total_query_template: str = SLO_TOTAL_QUERY_TEMPLATE
@@ -197,11 +229,12 @@ class Settings(BaseSettings):
 
     # rca heuristics
     rca_window_seconds: float = 300.0
-    rca_weights: Dict[str, float] = {"logs": 0.25, "latency": 0.40, "errors": 0.35}
+    rca_weights: Dict[str, float] = {"metrics": 0.40, "logs": 0.25, "traces": 0.35}
     rca_deploy_score_cutoff: float = 0.6
     rca_errorprop_max: float = 0.95
     rca_baseline_base: float = 0.5
     rca_baseline_affected_factor: float = 0.1
+    rca_min_confidence_display: float = 0.05
 
     # analyzer tuning
     analyzer_sensitivity_factor: float = 0.67

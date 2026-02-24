@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from engine.enums import Signal
 from api.routes.exception import handle_exceptions
+from api.security import get_context_tenant
 from engine.registry import get_registry
 from api.routes.common import safe_call
 
@@ -24,6 +25,7 @@ router = APIRouter(tags=["ML"])
 @router.post("/ml/weights/feedback", summary="Submit signal correctness feedback")
 @handle_exceptions
 async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> Dict[str, Any]:
+    tenant_id = get_context_tenant(tenant_id)
     try:
         sig = Signal(signal)
     except ValueError:
@@ -39,6 +41,7 @@ async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> Dic
 @router.get("/ml/weights", summary="Current adaptive signal weights for a tenant")
 @handle_exceptions
 async def get_signal_weights(tenant_id: str) -> Dict[str, Any]:
+    tenant_id = get_context_tenant(tenant_id)
     state = await safe_call(get_registry().get_state(tenant_id), 500)
     return {"weights": state.weights_serializable, "update_count": state.update_count}
 
@@ -46,5 +49,6 @@ async def get_signal_weights(tenant_id: str) -> Dict[str, Any]:
 @router.post("/ml/weights/reset", summary="Reset adaptive weights to defaults for a tenant")
 @handle_exceptions
 async def reset_signal_weights(tenant_id: str) -> Dict[str, Any]:
+    tenant_id = get_context_tenant(tenant_id)
     state = await safe_call(get_registry().reset_weights(tenant_id), 500)
     return {"weights": state.weights_serializable, "update_count": state.update_count}

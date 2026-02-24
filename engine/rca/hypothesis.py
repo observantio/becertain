@@ -42,17 +42,18 @@ class RootCause:
 
 
 def _signals_from_event(event: CorrelatedEvent) -> List[str]:
-    from engine.enums import Signal
-
-    signals: list[Signal] = []
-    if event.metric_anomalies:
-        signals.append(Signal.metrics)
+    signals: list[str] = []
+    metric_names = list(dict.fromkeys(a.metric_name for a in event.metric_anomalies if a.metric_name))
+    if metric_names:
+        signals.extend([f"metric:{name}" for name in metric_names[:3]])
     if event.log_bursts:
-        signals.append(Signal.logs)
-    if event.service_latency:
-        signals.append(Signal.traces)
-
-    return [s.value for s in signals]
+        signals.append("log:bursts")
+    latency_services = list(dict.fromkeys(s.service for s in event.service_latency if getattr(s, "service", None)))
+    if latency_services:
+        signals.extend([f"trace:{service}" for service in latency_services[:2]])
+    if not signals:
+        return ["metrics"]
+    return signals
 
 
 def _action_for_category(category: RcaCategory, service: str = "") -> str:
@@ -122,6 +123,11 @@ def generate(
             confidence=confidence,
             severity=Severity.from_score(confidence),
             category=category,
+            evidence=[
+                f"metrics={len(event.metric_anomalies)}",
+                f"log_bursts={len(event.log_bursts)}",
+                f"latency_services={len(event.service_latency)}",
+            ],
             contributing_signals=_signals_from_event(event),
             affected_services=affected,
             recommended_action=_action_for_category(category, root_svc),
@@ -156,4 +162,12 @@ def generate(
         ))
 
     causes.sort(key=lambda c: c.confidence, reverse=True)
+    min_conf = float(settings.rca_min_confidence_display)
+    filtered = [cause for cause in causes if cause.confidence >= min_conf]
+    if filtered:
+        return filtered
+    if causes:
+        top = causes[0]
+        top.hypothesis = f"[low_confidence] {top.hypothesis}"
+        return [top]
     return causes

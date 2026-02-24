@@ -16,6 +16,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine.analyzer import run
 from api.requests import AnalyzeRequest
 from api.responses import AnalysisReport
@@ -26,4 +27,5 @@ router = APIRouter(tags=["RCA"])
 @router.post("/analyze", response_model=AnalysisReport, summary="Full cross-signal RCA")
 @handle_exceptions
 async def analyze(req: AnalyzeRequest) -> AnalysisReport:
+    req = enforce_request_tenant(req)
     return await run(get_provider(req.tenant_id), req)

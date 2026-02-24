@@ -11,6 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sys
 import time
@@ -24,9 +25,12 @@ from fastapi.responses import JSONResponse
 
 from api.routes import router
 from api.routes.common import close_providers
+from api.security import InternalAuthMiddleware
 from datasources.data_config import DataSourceSettings
 from config import settings
+from database import init_database, init_db, dispose_database
 from datasources.exceptions import BackendStartupTimeout
+from services.rca_job_service import rca_job_service
 
 logging.basicConfig(
     level=logging.INFO,
@@ -140,12 +144,32 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    if settings.database_url:
+        init_database(settings.database_url)
+        init_db()
+        await rca_job_service.startup_recovery()
+
     tenant_id = settings.default_tenant_id
-    asyncio.create_task(_wait_for_all_bg(settings, tenant_id))
+    readiness_task = asyncio.create_task(_wait_for_all_bg(settings, tenant_id))
+    cleanup_task = asyncio.create_task(_cleanup_loop())
     try:
         yield
     finally:
+        readiness_task.cancel()
+        cleanup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await readiness_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
         await close_providers()
+        dispose_database()
+
+
+async def _cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(300)
+        if settings.database_url:
+            await rca_job_service.cleanup_retention()
 
 
 app = FastAPI(
@@ -155,6 +179,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(InternalAuthMiddleware)
 app.include_router(router, prefix="/api/v1")
 
 
@@ -168,10 +193,17 @@ async def ready() -> JSONResponse:
 
 
 if __name__ == "__main__":
+    uvicorn_kwargs = {
+        "host": "0.0.0.0",
+        "port": 4322,
+        "log_level": "info",
+        "access_log": True,
+    }
+    if settings.ssl_enabled:
+        uvicorn_kwargs["ssl_certfile"] = settings.ssl_certfile
+        uvicorn_kwargs["ssl_keyfile"] = settings.ssl_keyfile
+
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=4322,
-        log_level="info",
-        access_log=True,
+        **uvicorn_kwargs,
     )

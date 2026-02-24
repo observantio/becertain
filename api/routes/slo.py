@@ -17,6 +17,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine import anomaly
 from engine.slo import evaluate as slo_evaluate, remaining_minutes
 from api.requests import SloRequest
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 @router.post("/slo/burn", summary="SLO error budget burn rate")
 @handle_exceptions
 async def slo_burn(req: SloRequest) -> Dict[str, Any]:
+    req = enforce_request_tenant(req)
     error_q = req.error_query or settings.slo_error_query_template.format(service=req.service)
     total_q = req.total_query or settings.slo_total_query_template.format(service=req.service)
     provider = get_provider(req.tenant_id)

@@ -15,6 +15,19 @@ from typing import Any, Dict, Iterator, Tuple, Union
 
 log = logging.getLogger(__name__)
 
+_LABEL_PRIORITY = (
+    "service",
+    "service_name",
+    "service.name",
+    "job",
+    "instance",
+    "pod",
+    "namespace",
+    "operation",
+    "method",
+    "status_code",
+)
+
 
 def iter_series(
     mimir_response: Union[Dict[str, Any], Tuple[Any, Dict[str, Any]]],
@@ -40,12 +53,19 @@ def iter_series(
             continue
 
         metric = result.get("metric", {})
-        label = (
-            metric.get("__name__")
-            or metric.get("job")
-            or next(iter(metric.values()), None)
-            or str(metric)
-        )
+        base = str(metric.get("__name__") or "metric")
+        label_parts: list[str] = []
+        for key in _LABEL_PRIORITY:
+            value = metric.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            label_parts.append(f"{key}={text}")
+            if len(label_parts) >= 3:
+                break
+        label = f"{base}{{{','.join(label_parts)}}}" if label_parts else base
 
         pairs = result.get("values", [])
         if not pairs:

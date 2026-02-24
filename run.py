@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import asyncio
+import os
 import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
 import httpx
+import jwt
 
 BASE_URL = "http://localhost:4322/api/v1"
 TENANT = "Av45ZchZsQdKjN8XyG"
@@ -13,6 +15,35 @@ NOW = int(time.time())
 H1 = NOW - 3600
 H24 = NOW - 86400
 HEADERS = {"Content-Type": "application/json"}
+SERVICE_TOKEN = os.getenv("BECERTAIN_EXPECTED_SERVICE_TOKEN", "replace_with_strong_token")
+VERIFY_KEY = os.getenv("BECERTAIN_CONTEXT_VERIFY_KEY", "replace_with_strong_key")
+ISSUER = os.getenv("BECERTAIN_CONTEXT_ISSUER", "beobservant-main")
+AUDIENCE = os.getenv("BECERTAIN_CONTEXT_AUDIENCE", "becertain")
+
+
+def _context_jwt() -> str:
+    now = int(time.time())
+    payload = {
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "iat": now,
+        "exp": now + 600,
+        "tenant_id": TENANT,
+        "org_id": TENANT,
+        "user_id": "local-runner",
+        "username": "local-runner",
+        "permissions": ["read:rca", "create:rca"],
+        "group_ids": [],
+        "role": "admin",
+        "is_superuser": True,
+    }
+    return jwt.encode(payload, VERIFY_KEY, algorithm="HS256")
+
+
+HEADERS.update({
+    "X-Service-Token": SERVICE_TOKEN,
+    "Authorization": f"Bearer {_context_jwt()}",
+})
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from engine.events.registry import DeploymentEvent
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant, get_context_tenant
 from engine.registry import get_registry
 from api.requests import DeploymentEventRequest
 
@@ -24,7 +25,8 @@ router = APIRouter(tags=["Events"])
 @router.post("/events/deployment", summary="Register a deployment event for RCA correlation")
 @handle_exceptions
 async def register_deployment(req: DeploymentEventRequest, tenant_id: str | None = None) -> Dict[str, str]:
-    tid = tenant_id or req.tenant_id
+    req = enforce_request_tenant(req)
+    tid = get_context_tenant(tenant_id or req.tenant_id)
     if not isinstance(tid, str) or not tid.strip():
         raise HTTPException(status_code=400, detail="tenant_id must be a non-empty string")
 
@@ -46,11 +48,12 @@ async def register_deployment(req: DeploymentEventRequest, tenant_id: str | None
 @router.get("/events/deployments", summary="List registered deployment events for a tenant")
 @handle_exceptions
 async def list_deployments(tenant_id: str) -> List[Dict[str, Any]]:
-    return await get_registry().get_events(tenant_id)
+    return await get_registry().get_events(get_context_tenant(tenant_id))
 
 
 @router.delete("/events/deployments", summary="Clear all deployment events for a tenant")
 @handle_exceptions
 async def clear_deployments(tenant_id: str) -> Dict[str, str]:
-    await get_registry().clear_events(tenant_id)
-    return {"status": "cleared", "tenant_id": tenant_id}
+    resolved_tenant = get_context_tenant(tenant_id)
+    await get_registry().clear_events(resolved_tenant)
+    return {"status": "cleared", "tenant_id": resolved_tenant}

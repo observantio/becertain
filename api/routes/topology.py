@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine.topology import DependencyGraph
 from api.requests import TopologyRequest
 
@@ -25,6 +26,7 @@ router = APIRouter(tags=["Topology"])
 @router.post("/topology/blast-radius", summary="Service dependency blast radius from traces")
 @handle_exceptions
 async def blast_radius(req: TopologyRequest) -> Dict[str, Any]:
+    req = enforce_request_tenant(req)
     raw = await safe_call(
         get_provider(req.tenant_id).query_traces(
             filters={}, start=req.start, end=req.end

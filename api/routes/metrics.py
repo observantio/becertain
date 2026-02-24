@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine import anomaly
 from engine.baseline import compute as baseline_compute
 from engine.changepoint import detect as changepoint_detect, ChangePoint
@@ -29,6 +30,7 @@ router = APIRouter(tags=["Metrics"])
 @router.post("/anomalies/metrics", response_model=List[MetricAnomaly])
 @handle_exceptions
 async def metric_anomalies(req: MetricRequest) -> List[MetricAnomaly]:
+    req = enforce_request_tenant(req)
     raw = await safe_call(
         get_provider(req.tenant_id).query_metrics(
             query=req.query, start=req.start, end=req.end, step=req.step
@@ -44,6 +46,7 @@ async def metric_anomalies(req: MetricRequest) -> List[MetricAnomaly]:
 @router.post("/changepoints", response_model=List[ChangePoint])
 @handle_exceptions
 async def metric_changepoints(req: ChangepointRequest) -> List[ChangePoint]:
+    req = enforce_request_tenant(req)
     raw = await safe_call(
         get_provider(req.tenant_id).query_metrics(
             query=req.query, start=req.start, end=req.end, step=req.step

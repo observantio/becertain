@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
+from api.security import enforce_request_tenant
 from engine import anomaly
 from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS
 from engine.fetcher import fetch_metrics
@@ -24,10 +25,20 @@ from api.requests import CorrelateRequest
 router = APIRouter(tags=["Forecast"])
 
 
+def _coerce_query_value(value: Any, cast: Any) -> Any:
+    # Allow direct unit-test invocation without FastAPI Query parsing.
+    raw = value.default if hasattr(value, "default") else value
+    return cast(raw)
+
 
 @router.post("/forecast/trajectory", summary="Time-to-failure and degradation trajectory per metric")
 @handle_exceptions
-async def metric_trajectory(req: CorrelateRequest) -> Dict[str, Any]:
+async def metric_trajectory(
+    req: CorrelateRequest,
+    limit: int = Query(default=100, ge=1, le=2000),
+) -> Dict[str, Any]:
+    limit = _coerce_query_value(limit, int)
+    req = enforce_request_tenant(req)
     provider = get_provider(req.tenant_id)
     all_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
@@ -49,5 +60,9 @@ async def metric_trajectory(req: CorrelateRequest) -> Dict[str, Any]:
                     "forecast": f.__dict__ if f else None,
                     "degradation": deg.__dict__ if deg else None,
                 })
-
-    return {"results": results}
+    severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+    results.sort(key=lambda row: max(
+        severity_rank.get(str((row.get("forecast") or {}).get("severity", "")).lower(), 0),
+        severity_rank.get(str((row.get("degradation") or {}).get("severity", "")).lower(), 0),
+    ), reverse=True)
+    return {"results": results[:limit]}

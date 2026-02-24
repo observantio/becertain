@@ -43,17 +43,15 @@ def score_error_propagation(propagation: list) -> float:
 
 
 def score_correlated_event(event: CorrelatedEvent) -> float:
-    weights = {}
-    for signal, weight in settings.rca_weights.items():
-        count = 0
-        if signal == "metrics":
-            count = len(event.metric_anomalies)
-        elif signal == "logs":
-            count = len(event.log_bursts)
-        elif signal == "traces":
-            count = len(event.service_latency)
-        weights[signal] = weight * min(settings.correlation_score_max, count)
-    return round(min(settings.correlation_score_max, sum(weights.values())), 3)
+    configured = dict(settings.rca_weights or {})
+    metric_weight = float(configured.get("metrics", configured.get("latency", 0.40)))
+    log_weight = float(configured.get("logs", configured.get("log", 0.25)))
+    trace_weight = float(configured.get("traces", configured.get("errors", 0.35)))
+
+    metric_component = metric_weight * min(settings.correlation_score_max, len(event.metric_anomalies))
+    log_component = log_weight * min(settings.correlation_score_max, len(event.log_bursts))
+    trace_component = trace_weight * min(settings.correlation_score_max, len(event.service_latency))
+    return round(min(settings.correlation_score_max, metric_component + log_component + trace_component), 3)
 
 
 def categorize(
