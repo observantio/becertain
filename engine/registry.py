@@ -10,8 +10,9 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+import math
 import logging
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 
 from engine.enums import Signal
 from store import events as event_store, weights as weight_store
@@ -23,12 +24,57 @@ log = logging.getLogger(__name__)
 _SIGNAL_KEYS: tuple[Signal, ...] = (Signal.metrics, Signal.logs, Signal.traces)
 
 
-def _coerce_weights(raw: dict) -> Dict[Signal, float]:
-    return {Signal(k): float(v) for k, v in raw.items() if k in Signal._value2member_map_}
+def _default_weights() -> Dict[Signal, float]:
+    defaults: Dict[Signal, float] = {}
+    for signal in _SIGNAL_KEYS:
+        configured = DEFAULT_WEIGHTS.get(signal.value)
+        if isinstance(configured, (int, float)) and math.isfinite(float(configured)) and float(configured) >= 0.0:
+            defaults[signal] = float(configured)
+        else:
+            defaults[signal] = 1.0 / len(_SIGNAL_KEYS)
+    total = sum(defaults.values()) or 1.0
+    for signal in defaults:
+        defaults[signal] = defaults[signal] / total
+    return defaults
+
+
+def _coerce_weights(raw: Any) -> Dict[Signal, float]:
+    weights = _default_weights()
+    if not isinstance(raw, dict):
+        return weights
+
+    for key, value in raw.items():
+        signal: Signal | None = None
+        if isinstance(key, Signal):
+            signal = key
+        elif isinstance(key, str) and key in Signal._value2member_map_:
+            signal = Signal(key)
+        if signal is None:
+            continue
+
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(numeric) or numeric < 0.0:
+            continue
+        weights[signal] = numeric
+
+    total = sum(weights.values()) or 1.0
+    for signal in weights:
+        weights[signal] = weights[signal] / total
+    return weights
 
 
 def _serialize_weights(weights: Dict[Signal, float]) -> Dict[str, float]:
     return {k.value: v for k, v in weights.items()}
+
+
+def _coerce_update_count(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 class TenantState:
@@ -52,7 +98,7 @@ class TenantState:
 
     def update_weight(self, signal: Signal, was_correct: bool) -> None:
         reward = 1.0 if was_correct else 0.0
-        current = self._weights.get(signal, DEFAULT_WEIGHTS.get(signal, 1.0 / len(_SIGNAL_KEYS)))
+        current = self._weights.get(signal, _default_weights().get(signal, 1.0 / len(_SIGNAL_KEYS)))
         self._weights[signal] = (1 - REGISTRY_ALPHA) * current + REGISTRY_ALPHA * reward
         self._normalize()
         self._update_count += 1
@@ -64,11 +110,11 @@ class TenantState:
         trace_score: float,
     ) -> float:
         w = self._weights
-        default = DEFAULT_WEIGHTS
+        default = _default_weights()
         return round(
-            w.get(Signal.metrics, default[Signal.metrics]) * metric_score
-            + w.get(Signal.logs, default[Signal.logs]) * log_score
-            + w.get(Signal.traces, default[Signal.traces]) * trace_score,
+            w.get(Signal.metrics, default.get(Signal.metrics, 1.0 / len(_SIGNAL_KEYS))) * metric_score
+            + w.get(Signal.logs, default.get(Signal.logs, 1.0 / len(_SIGNAL_KEYS))) * log_score
+            + w.get(Signal.traces, default.get(Signal.traces, 1.0 / len(_SIGNAL_KEYS))) * trace_score,
             4,
         )
 
@@ -91,8 +137,8 @@ class TenantRegistry:
             stored = await weight_store.load(tenant_id)
             if stored:
                 state = TenantState(
-                    weights=_coerce_weights(stored["weights"]),
-                    update_count=stored.get("update_count", 0),
+                    weights=_coerce_weights(stored.get("weights")),
+                    update_count=_coerce_update_count(stored.get("update_count", 0)),
                 )
             else:
                 state = TenantState(weights=_coerce_weights(DEFAULT_WEIGHTS), update_count=0)

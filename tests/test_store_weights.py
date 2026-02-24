@@ -32,3 +32,24 @@ def test_weights_key_format():
     k = keys.weights(tid)
     assert "foo" in k
     assert k.startswith("bc:foo:weights")
+
+
+@pytest.mark.asyncio
+async def test_weights_load_rejects_invalid_payload(monkeypatch):
+    async def fake_redis_get(_):
+        return '{"weights":"not-a-map","update_count":"oops"}'
+
+    monkeypatch.setattr(wstore, "redis_get", fake_redis_get)
+    assert await wstore.load("tenant-bad") is None
+
+
+@pytest.mark.asyncio
+async def test_weights_load_coerces_update_count(monkeypatch):
+    async def fake_redis_get(_):
+        return '{"weights":{"metrics":0.4},"update_count":"7"}'
+
+    monkeypatch.setattr(wstore, "redis_get", fake_redis_get)
+    loaded = await wstore.load("tenant-good")
+    assert loaded is not None
+    assert loaded["weights"] == {"metrics": 0.4}
+    assert loaded["update_count"] == 7

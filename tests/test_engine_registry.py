@@ -58,3 +58,37 @@ async def test_engine_registry_defaults_and_updates(monkeypatch):
     state3 = await reg.get_state(tid)
     assert state3.update_count == 0
     assert state3.weights_serializable == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
+
+
+@pytest.mark.asyncio
+async def test_engine_registry_sanitizes_corrupt_stored_weights(monkeypatch):
+    tid = "tenant-corrupt"
+
+    async def fake_load(_):
+        return {
+            "weights": {
+                "metrics": "nan",
+                "logs": -2.0,
+                "traces": 0.6,
+                "unknown": 123,
+            },
+            "update_count": "bad",
+        }
+
+    async def fake_save(*_args, **_kwargs):
+        return None
+
+    async def fake_delete(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(wstore, "load", fake_load)
+    monkeypatch.setattr(wstore, "save", fake_save)
+    monkeypatch.setattr(wstore, "delete", fake_delete)
+
+    reg = ereg.TenantRegistry()
+    state = await reg.get_state(tid)
+    weights = state.weights_serializable
+    assert set(weights.keys()) == {"metrics", "logs", "traces"}
+    assert all(v >= 0.0 for v in weights.values())
+    assert abs(sum(weights.values()) - 1.0) < 1e-6
+    assert state.update_count == 0

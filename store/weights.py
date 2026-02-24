@@ -25,7 +25,19 @@ async def load(tenant_id: str) -> Optional[Dict[str, Any]]:
     try:
         raw = await redis_get(keys.weights(tenant_id))
         if raw:
-            return json.loads(raw)
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                return None
+            weights = payload.get("weights")
+            if not isinstance(weights, dict):
+                return None
+            update_count = payload.get("update_count", 0)
+            if not isinstance(update_count, int):
+                try:
+                    update_count = int(update_count)
+                except (TypeError, ValueError):
+                    update_count = 0
+            return {"weights": weights, "update_count": max(0, update_count)}
     except Exception as exc:
         log.debug("Weights load failed %s: %s", tenant_id, exc)
     return None
