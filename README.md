@@ -221,6 +221,10 @@ Ensure tests pass:
 pytest -q
 ```
 
+If you are contributing from the BeObservant mono-repo root, commits are also
+gated by `.pre-commit-config.yaml`, which runs this BeCertain test suite plus
+the other service checks before allowing a commit.
+
 ## 📄 License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
