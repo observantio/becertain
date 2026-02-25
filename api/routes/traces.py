@@ -19,7 +19,6 @@ from services.security_service import enforce_request_tenant
 from engine import traces
 from api.requests import TraceRequest
 from api.responses import ServiceLatency
-from config import DEFAULT_SERVICE_NAME
 
 router = APIRouter(tags=["Traces"])
 
@@ -29,7 +28,8 @@ router = APIRouter(tags=["Traces"])
 async def trace_anomalies(req: TraceRequest) -> List[ServiceLatency]:
     req = enforce_request_tenant(req)
     filters: Dict[str, Any] = {}
-    filters["service.name"] = req.service or DEFAULT_SERVICE_NAME
+    if req.service:
+        filters["service.name"] = req.service
     raw = await safe_call(
         get_provider(req.tenant_id).query_traces(
             filters=filters, start=req.start, end=req.end

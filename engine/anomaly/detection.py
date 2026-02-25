@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+import math
 from typing import List, Tuple
 
 import numpy as np
@@ -71,6 +72,39 @@ def _severity(z: float, mad: float, iso: int) -> Severity:
     if iso == -1:
         score += settings.anomaly_iso_weight
     return Severity.from_score(min(score, 1.0))
+
+
+def _is_precision_profile() -> bool:
+    return str(getattr(settings, "quality_gating_profile", "")).strip().lower().startswith("precision")
+
+
+def _apply_density_cap(anomalies: List[MetricAnomaly], timestamps: np.ndarray) -> List[MetricAnomaly]:
+    if not anomalies:
+        return anomalies
+    max_density = float(getattr(settings, "quality_max_anomaly_density_per_metric_per_hour", 0.0))
+    if max_density <= 0:
+        return anomalies
+
+    if timestamps.size >= 2:
+        window_seconds = max(1.0, float(timestamps.max() - timestamps.min()))
+    else:
+        window_seconds = 3600.0
+    window_hours = max(window_seconds / 3600.0, 1.0 / 60.0)
+    keep_limit = max(1, int(math.ceil(max_density * window_hours)))
+    if len(anomalies) <= keep_limit:
+        return anomalies
+
+    ranked = sorted(
+        anomalies,
+        key=lambda a: (
+            a.severity.weight(),
+            abs(float(a.z_score)),
+            abs(float(a.mad_score)),
+        ),
+        reverse=True,
+    )
+    kept = ranked[:keep_limit]
+    return sorted(kept, key=lambda a: a.timestamp)
 
 
 def _compress_runs(anomalies: List[MetricAnomaly]) -> List[MetricAnomaly]:
@@ -141,14 +175,21 @@ def detect(
             / max(sensitivity, settings.anomaly_min_sensitivity),
         ),
     )
+    if _is_precision_profile():
+        contamination = max(
+            settings.anomaly_contamination_min,
+            min(0.10, contamination * 0.35),
+        )
 
-    arr = np.array(values, dtype=float)
-    ts = np.array(timestamps, dtype=float)
-    finite = np.isfinite(arr)
+    arr_raw = np.array(values, dtype=float)
+    ts_raw = np.array(timestamps, dtype=float)
+    finite = np.isfinite(arr_raw) & np.isfinite(ts_raw)
     if finite.sum() < settings.min_samples:
         return []
 
-    clean = arr[finite]
+    arr = arr_raw[finite]
+    ts = ts_raw[finite]
+    clean = arr
     mean, std = clean.mean(), clean.std()
     if std == 0:
         return []
@@ -170,17 +211,22 @@ def detect(
     slope, *_ = linregress(np.arange(len(clean)), clean)
 
     anomalies: List[MetricAnomaly] = []
-    for i, (t, v, z, m, c, iso_l, iso_s) in enumerate(
+    for t, v, z, m, c, iso_l, iso_s in (
         zip(ts, arr, z_scores, mad_scores, cusum_flags, iso_labels, iso_scores)
     ):
-        if not np.isfinite(v):
-            continue
-        flagged = (
+        stat_flag = (
             abs(z) >= settings.zscore_threshold
             or abs(m) >= settings.mad_threshold
-            or iso_l == -1
             or c
         )
+        iso_flag = (
+            iso_l == -1
+            and (
+                abs(z) >= settings.zscore_threshold * 0.7
+                or abs(m) >= settings.mad_threshold * 0.7
+            )
+        )
+        flagged = stat_flag or iso_flag
         if not flagged:
             continue
 
@@ -204,5 +250,5 @@ def detect(
         ))
 
     if bool(settings.anomaly_compress_runs):
-        return _compress_runs(anomalies)
-    return anomalies
+        anomalies = _compress_runs(anomalies)
+    return _apply_density_cap(anomalies, ts)

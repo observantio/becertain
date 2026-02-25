@@ -76,6 +76,7 @@ def test_generate_with_simple_event():
     assert isinstance(root, list)
     if root:
         assert isinstance(root[0], RootCause)
+        assert "corroborating signal" in root[0].corroboration_summary
 
 
 def test_generate_deduplicates_same_hypothesis_events():
@@ -110,3 +111,4 @@ def test_generate_deduplicates_same_hypothesis_events():
     )
     causes = generate([], [], [], [], [], correlated_events=[ev1, ev2], graph=None, event_registry=None)
     assert len(causes) == 1
+    assert causes[0].corroboration_summary

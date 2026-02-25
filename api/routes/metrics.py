@@ -17,7 +17,6 @@ from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
 from services.security_service import enforce_request_tenant
 from engine import anomaly
-from engine.baseline import compute as baseline_compute
 from engine.changepoint import detect as changepoint_detect, ChangePoint
 from api.requests import MetricRequest, ChangepointRequest
 from api.responses import MetricAnomaly
@@ -55,13 +54,16 @@ async def metric_changepoints(req: ChangepointRequest) -> List[ChangePoint]:
 
     results: List[ChangePoint] = []
     for metric_name, ts, vals in anomaly.iter_series(raw, query_hint=req.query):
-        baseline = baseline_compute(ts, vals)
-        results.extend(
-            changepoint_detect(
-                ts,
-                vals,
-                threshold_sigma=req.threshold_sigma or baseline.std,
-                metric_name=metric_name,
+        threshold_sigma = float(req.threshold_sigma)
+        try:
+            results.extend(
+                changepoint_detect(
+                    ts,
+                    vals,
+                    threshold_sigma=threshold_sigma,
+                    metric_name=metric_name,
+                )
             )
-        )
+        except TypeError:
+            results.extend(changepoint_detect(ts, vals, threshold_sigma))
     return sorted(results, key=lambda c: c.timestamp)

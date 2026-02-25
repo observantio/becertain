@@ -36,3 +36,22 @@ def test_detect_uses_settings(monkeypatch):
     pts_low_k = detect(ts, vals, threshold_sigma=0.1)
 
     assert len(pts_low_k) >= len(pts_high_k)
+
+
+def test_threshold_sigma_is_scale_invariant():
+    ts = list(range(40))
+    vals = [100.0] * 20 + [130.0] * 20
+    vals_scaled = [v * 10.0 for v in vals]
+
+    points = detect(ts, vals, threshold_sigma=3.0)
+    points_scaled = detect(ts, vals_scaled, threshold_sigma=3.0)
+
+    assert [p.index for p in points] == [p.index for p in points_scaled]
+
+
+def test_larger_threshold_sigma_is_less_sensitive():
+    ts = list(range(40))
+    vals = [1.0] * 20 + [2.0] * 20
+    points_low_sigma = detect(ts, vals, threshold_sigma=2.0)
+    points_high_sigma = detect(ts, vals, threshold_sigma=6.0)
+    assert len(points_low_sigma) >= len(points_high_sigma)

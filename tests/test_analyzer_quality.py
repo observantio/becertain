@@ -10,8 +10,16 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from api.responses import MetricAnomaly, RootCause as RootCauseModel
-from engine.analyzer import _limit_analyzer_output, _select_granger_series, _to_root_cause_model
+from engine.analyzer import (
+    _apply_precision_quality_gates,
+    _build_log_query,
+    _limit_analyzer_output,
+    _select_granger_series,
+    _to_root_cause_model,
+)
 from engine.causal.granger import GrangerResult
 from engine.changepoint import ChangePoint
 from engine.enums import ChangeType, RcaCategory, Severity, Signal
@@ -158,3 +166,98 @@ def test_select_granger_series_filters_constant_and_short_series(monkeypatch):
     assert "const" not in selected
     assert "short" not in selected
     assert len(selected) <= 2
+
+
+def test_to_root_cause_model_includes_additive_defaults():
+    rc = _to_root_cause_model(
+        {
+            "hypothesis": "test",
+            "confidence": 0.4,
+            "evidence": [],
+            "contributing_signals": ["metrics"],
+            "recommended_action": "act",
+            "severity": "low",
+        }
+    )
+    assert rc.corroboration_summary is None
+    assert rc.suppression_diagnostics == {}
+    assert rc.selection_score_components == {}
+
+
+def test_apply_precision_quality_gates_enforces_density_and_root_cause_filters(monkeypatch):
+    monkeypatch.setattr("config.settings.quality_gating_profile", "precision_strict_v1")
+    monkeypatch.setattr("config.settings.quality_max_anomaly_density_per_metric_per_hour", 1.0)
+    monkeypatch.setattr("config.settings.quality_max_root_causes_without_multisignal", 1)
+    monkeypatch.setattr("config.settings.quality_min_corroboration_signals", 2)
+    monkeypatch.setattr("config.settings.quality_confidence_calibration_version", "calib_test")
+    monkeypatch.setattr("config.settings.rca_min_confidence_display", 0.05)
+
+    anomalies = [
+        MetricAnomaly(
+            metric_name="shared_metric",
+            timestamp=float(100 + i * 10),
+            value=float(i),
+            change_type=ChangeType.spike,
+            z_score=5.0 + i,
+            mad_score=4.0 + i,
+            isolation_score=-0.5,
+            expected_range=(0.0, 1.0),
+            severity=Severity.high,
+            description="",
+        )
+        for i in range(6)
+    ]
+    causes = [
+        RootCauseModel(
+            hypothesis="low-confidence-single-signal",
+            confidence=0.08,
+            evidence=[],
+            contributing_signals=[Signal.metrics],
+            recommended_action="inspect",
+            severity=Severity.low,
+        ),
+        RootCauseModel(
+            hypothesis="multi-signal-cause",
+            confidence=0.75,
+            evidence=[],
+            contributing_signals=[Signal.metrics, Signal.logs],
+            recommended_action="rollback",
+            severity=Severity.high,
+        ),
+    ]
+    ranked = [
+        SimpleNamespace(root_cause=SimpleNamespace(hypothesis="low-confidence-single-signal"), final_score=0.1),
+        SimpleNamespace(root_cause=SimpleNamespace(hypothesis="multi-signal-cause"), final_score=0.8),
+    ]
+    warnings: list[str] = []
+    suppression_counts: dict[str, int] = {}
+
+    anomalies_after, causes_after, ranked_after, quality = _apply_precision_quality_gates(
+        metric_anomalies=anomalies,
+        root_causes=causes,
+        ranked_causes=ranked,
+        duration_seconds=3600.0,
+        suppression_counts=suppression_counts,
+        warnings=warnings,
+    )
+
+    assert len(anomalies_after) == 1
+    assert len(causes_after) == 1
+    assert causes_after[0].hypothesis == "multi-signal-cause"
+    assert causes_after[0].corroboration_summary
+    assert causes_after[0].suppression_diagnostics.get("meets_min_corroboration_signals") is True
+    assert len(ranked_after) == 1
+    assert quality.gating_profile == "precision_strict_v1"
+    assert quality.confidence_calibration_version == "calib_test"
+    assert quality.suppression_counts.get("density_suppressed_metric_anomalies", 0) >= 1
+    assert quality.suppression_counts.get("low_confidence_root_causes", 0) >= 1
+
+
+def test_build_log_query_defaults_to_global_selector():
+    assert _build_log_query([], None) == '{service_name=~".+"}'
+    assert _build_log_query(None, None) == '{service_name=~".+"}'
+
+
+def test_build_log_query_services_use_service_name_label():
+    query = _build_log_query(["payments"], None)
+    assert query == '{service_name=~"payments"}'

@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import asyncio
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,7 +18,9 @@ from api.requests import AnalyzeRequest
 from api.responses import MetricAnomaly
 from engine import analyzer
 from engine.baseline.compute import Baseline
-from engine.enums import ChangeType, Severity
+from engine.enums import ChangeType, RcaCategory, Severity
+from engine.ml.ranking import RankedCause
+from engine.rca.hypothesis import RootCause
 
 
 def _metric_result(name: str, values: list[float]) -> dict:
@@ -164,6 +167,12 @@ async def test_analyzer_run_non_empty_path_and_tenant_isolation(monkeypatch):
     assert report.service_latency
     assert report.summary
     assert isinstance(report.analysis_warnings, list)
+    assert report.quality is not None
+    assert report.quality.gating_profile.startswith("precision")
+    assert all(v <= 1.1 for v in (report.quality.anomaly_density or {}).values())
+    if report.root_causes:
+        assert report.root_causes[0].selection_score_components
+        assert report.root_causes[0].corroboration_summary
     assert captured["baseline_tenants"] == {"tenant-one"}
     assert captured["granger_tenants"] == {"tenant-one"}
 
@@ -257,3 +266,125 @@ async def test_analyzer_enforces_caps_during_run(monkeypatch):
     assert len(report.anomaly_clusters) <= 1
     assert len(report.granger_results) <= 1
     assert any("capped" in warning for warning in report.analysis_warnings)
+
+
+@pytest.mark.asyncio
+async def test_analyzer_limits_uncorroborated_root_causes(monkeypatch):
+    monkeypatch.setattr(analyzer, "DEFAULT_METRIC_QUERIES", ["q_a"])
+    monkeypatch.setattr(analyzer, "get_registry", lambda: DummyRegistry())
+    monkeypatch.setattr(analyzer.anomaly, "detect", fake_detect)
+    monkeypatch.setattr(analyzer, "changepoint_detect", lambda ts, vals, threshold_sigma=None: [])
+    monkeypatch.setattr(analyzer, "test_all_pairs", lambda series_map, max_lag=None, p_threshold=None: [])
+
+    async def fake_compute_and_persist(tenant_id, metric_name, ts, vals, z_threshold=3.0):
+        return Baseline(mean=1.0, std=1.0, lower=0.0, upper=2.0, sample_count=len(vals))
+
+    async def fake_save_and_merge(tenant_id, service, fresh_results):
+        return []
+
+    def fake_generate(*args, **kwargs):
+        return [
+            RootCause(
+                hypothesis="h1",
+                confidence=0.2,
+                severity=Severity.low,
+                category=RcaCategory.unknown,
+                evidence=[],
+                contributing_signals=["metrics"],
+                affected_services=[],
+                recommended_action="investigate",
+            ),
+            RootCause(
+                hypothesis="h2",
+                confidence=0.21,
+                severity=Severity.low,
+                category=RcaCategory.unknown,
+                evidence=[],
+                contributing_signals=["metrics"],
+                affected_services=[],
+                recommended_action="investigate",
+            ),
+        ]
+
+    def fake_rank(causes, correlated_events):
+        return [
+            RankedCause(root_cause=cause, ml_score=cause.confidence, final_score=cause.confidence, feature_importance={})
+            for cause in causes
+        ]
+
+    monkeypatch.setattr(analyzer.baseline_store, "compute_and_persist", fake_compute_and_persist)
+    monkeypatch.setattr(analyzer.granger_store, "save_and_merge", fake_save_and_merge)
+    monkeypatch.setattr(analyzer.rca, "generate", fake_generate)
+    monkeypatch.setattr(analyzer, "rank", fake_rank)
+
+    req = AnalyzeRequest(tenant_id="tenant-quality", start=1, end=3600, step="15s", services=["payment-service"])
+    report = await analyzer.run(DummyProvider(), req)
+
+    assert len(report.root_causes) <= 1
+    assert report.quality is not None
+    assert report.quality.suppression_counts.get("root_causes_without_multisignal", 0) >= 1
+
+
+class LogsFallbackProvider(EmptyProvider):
+    def __init__(self):
+        self.queries = []
+
+    async def query_logs(self, query: str, start: int, end: int, limit=None):
+        self.queries.append(query)
+        if query == '{service=~"payment\\-service"}':
+            return {
+                "data": {
+                    "result": [
+                        {
+                            "stream": {"job": "api"},
+                            "values": [
+                                [str(int(100 * 1e9)), "error one"],
+                                [str(int(101 * 1e9)), "error two"],
+                            ],
+                        }
+                    ]
+                }
+            }
+        return {"data": {"result": []}}
+
+
+@pytest.mark.asyncio
+async def test_analyzer_retries_logs_with_global_selector_when_service_filter_returns_empty(monkeypatch):
+    monkeypatch.setattr(analyzer, "DEFAULT_METRIC_QUERIES", ["q_a"])
+    monkeypatch.setattr(analyzer, "get_registry", lambda: DummyRegistry())
+
+    async def fake_process_metrics(provider, req, all_metric_queries, z_threshold, analysis_window_seconds):
+        return [], [], [], [], {}
+
+    monkeypatch.setattr(analyzer, "_process_metrics", fake_process_metrics)
+
+    provider = LogsFallbackProvider()
+    req = AnalyzeRequest(tenant_id="tenant-logs", start=1, end=3600, step="15s", services=["payment-service"])
+    report = await analyzer.run(provider, req)
+
+    assert '{service_name=~"payment\\-service"}' in provider.queries
+    assert '{service=~"payment\\-service"}' in provider.queries
+    assert not any("Logs query returned no entries" in warning for warning in report.analysis_warnings)
+
+
+@pytest.mark.asyncio
+async def test_analyzer_caps_predictive_only_critical_to_medium(monkeypatch):
+    monkeypatch.setattr(analyzer, "DEFAULT_METRIC_QUERIES", ["q_a"])
+    monkeypatch.setattr(analyzer, "get_registry", lambda: DummyRegistry())
+
+    async def fake_process_metrics(provider, req, all_metric_queries, z_threshold, analysis_window_seconds):
+        return (
+            [],
+            [],
+            [SimpleNamespace(severity=Severity.critical)],
+            [SimpleNamespace(severity=Severity.critical)],
+            {},
+        )
+
+    monkeypatch.setattr(analyzer, "_process_metrics", fake_process_metrics)
+
+    req = AnalyzeRequest(tenant_id="tenant-predictive", start=1, end=300, step="15s", services=["payment-service"])
+    report = await analyzer.run(EmptyProvider(), req)
+
+    assert report.overall_severity == Severity.medium
+    assert any("severity was capped at MEDIUM" in warning for warning in report.analysis_warnings)

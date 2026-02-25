@@ -79,7 +79,7 @@ CASES: list[Case] = [
     # ── Events Setup ──────────────────────────────────────
     Case("POST deployment event", "POST", "/events/deployment", section="Events Setup", body={
         "tenant_id": TENANT, "service": "payment-service", "version": "v2.1.0",
-        "timestamp": NOW - 1800, "deployed_by": "ci-bot", "environment": "production",
+        "timestamp": NOW - 1800, "author": "ci-bot", "environment": "production",
     }),
     Case("GET deployments", "GET", "/events/deployments", section="Events Setup",
          params={"tenant_id": TENANT}),
@@ -99,7 +99,7 @@ CASES: list[Case] = [
     Case("low sensitivity", "POST", "/analyze", section="Full RCA",
          body=base({"sensitivity": 5.0})),
     Case("wider correlation window", "POST", "/analyze", section="Full RCA",
-         body=base({"correlation_window": 600})),
+         body=base({"correlation_window_seconds": 600})),
     Case("24h window", "POST", "/analyze", section="Full RCA",
          body={**base(), "start": H24}),
 
@@ -133,16 +133,16 @@ CASES: list[Case] = [
 
     # ── Traces ────────────────────────────────────────────
     Case("service filter", "POST", "/anomalies/traces", section="Traces",
-         body=base({"services": ["web-frontend"], "apdex_threshold": 0.7})),
+         body=base({"service": "web-frontend", "apdex_threshold_ms": 700.0})),
     Case("strict apdex", "POST", "/anomalies/traces", section="Traces",
-         body=base({"apdex_threshold": 0.95})),
+         body=base({"apdex_threshold_ms": 450.0})),
     Case("no service filter", "POST", "/anomalies/traces", section="Traces", body=base()),
 
     # ── Correlation ───────────────────────────────────────
     Case("service scoped", "POST", "/correlate", section="Correlation",
          body=base({"services": ["payment-service"]})),
     Case("wide window", "POST", "/correlate", section="Correlation",
-         body=base({"correlation_window": 600})),
+         body=base({"window_seconds": 600})),
     Case("custom log query", "POST", "/correlate", section="Correlation",
          body=base({"log_query": '{app="payment-service"}'})),
 
@@ -161,11 +161,11 @@ CASES: list[Case] = [
 
     # ── Topology ──────────────────────────────────────────
     Case("depth 5", "POST", "/topology/blast-radius", section="Topology",
-         body={**base(), "root_service": "payment-service", "depth": 5}),
+         body={**base(), "root_service": "payment-service", "max_depth": 5}),
     Case("depth 1", "POST", "/topology/blast-radius", section="Topology",
-         body={**base(), "root_service": "payment-service", "depth": 1}),
+         body={**base(), "root_service": "payment-service", "max_depth": 1}),
     Case("order service", "POST", "/topology/blast-radius", section="Topology",
-         body={**base(), "root_service": "order-service", "depth": 3}),
+         body={**base(), "root_service": "order-service", "max_depth": 3}),
 
     # ── Forecast ─────────────────────────────────────────
     Case("default queries", "POST", "/forecast/trajectory", section="Forecast", body=base()),

@@ -39,6 +39,7 @@ class RootCause:
     affected_services: List[str] = field(default_factory=list)
     recommended_action: str = ""
     deployment: Optional[DeploymentEvent] = None
+    corroboration_summary: str = ""
 
 
 def _evidence_score(entries: List[str]) -> float:
@@ -89,6 +90,28 @@ def _signals_from_event(event: CorrelatedEvent) -> List[str]:
     if not signals:
         return ["metrics"]
     return list(dict.fromkeys(signals))
+
+
+def _corroboration_summary(signals: List[str]) -> str:
+    roots = []
+    for signal in signals:
+        text = str(signal or "").strip().lower()
+        if not text:
+            continue
+        if ":" in text:
+            text = text.split(":", 1)[0]
+        if text in {"metric", "metrics"}:
+            roots.append("metrics")
+        elif text in {"log", "logs"}:
+            roots.append("logs")
+        elif text in {"trace", "traces"}:
+            roots.append("traces")
+        elif text in {"event", "events", "deployment", "deploy"}:
+            roots.append("events")
+    unique = sorted(set(roots))
+    if not unique:
+        return "single-signal evidence"
+    return f"{len(unique)} corroborating signal(s): {', '.join(unique)}"
 
 
 def _action_for_category(category: RcaCategory, service: str = "") -> str:
@@ -153,6 +176,7 @@ def generate(
 
         hypothesis = f"[{category.value}] Correlated incident: {' + '.join(parts) or 'multi-signal event'}"
 
+        event_signals = _signals_from_event(event)
         causes.append(RootCause(
             hypothesis=hypothesis,
             confidence=confidence,
@@ -163,10 +187,11 @@ def generate(
                 f"log_bursts={len(event.log_bursts)}",
                 f"latency_services={len(event.service_latency)}",
             ],
-            contributing_signals=_signals_from_event(event),
+            contributing_signals=event_signals,
             affected_services=affected,
             recommended_action=_action_for_category(category, root_svc),
             deployment=deploy_event,
+            corroboration_summary=_corroboration_summary(event_signals),
         ))
 
     for prop in error_propagation:
@@ -183,6 +208,7 @@ def generate(
             contributing_signals=[f"trace:propagation:{svc}"],
             affected_services=all_affected,
             recommended_action=_action_for_category(RcaCategory.error_propagation, svc),
+            corroboration_summary=_corroboration_summary([f"trace:propagation:{svc}"]),
         ))
 
     critical_patterns = [p for p in log_patterns if p.severity.weight() >= settings.rca_severity_weight_threshold]
@@ -194,6 +220,7 @@ def generate(
             category=RcaCategory.unknown,
             contributing_signals=[f"log:{p.pattern[:40]}" for p in critical_patterns[:3]],
             recommended_action="Review high-severity log patterns for error root cause.",
+            corroboration_summary=_corroboration_summary([f"log:{p.pattern[:40]}" for p in critical_patterns[:3]]),
         ))
 
     causes = _dedupe_causes(causes)

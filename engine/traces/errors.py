@@ -14,6 +14,7 @@ from collections import defaultdict
 from typing import Any, Dict, List
 
 from engine.enums import Severity
+from engine.topology import DependencyGraph
 from api.responses import ErrorPropagation
 from config import settings
 
@@ -21,6 +22,8 @@ from config import settings
 def detect_propagation(tempo_response: Dict[str, Any]) -> List[ErrorPropagation]:
     service_errors: Dict[str, int] = defaultdict(int)
     service_total: Dict[str, int] = defaultdict(int)
+    graph = DependencyGraph()
+    graph.from_spans(tempo_response)
 
     for trace in tempo_response.get("traces", []):
         service = trace.get("rootServiceName", "unknown")
@@ -55,12 +58,10 @@ def detect_propagation(tempo_response: Dict[str, Any]) -> List[ErrorPropagation]
     if not sources:
         return []
 
-    all_erroring = {svc for svc, rate in error_rates.items() if rate > 0}
-
     results: List[ErrorPropagation] = []
 
     for source in sources:
-        affected_services = sorted(all_erroring - {source})
+        affected_services = sorted(graph.blast_radius(source).affected_downstream)
         if not affected_services:
             continue
 

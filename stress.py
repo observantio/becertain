@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import statistics
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import jwt
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,10 @@ class RunConfig:
     warmup: int
     services: list[str]
     sensitivity: float | None
+    service_token: str
+    context_verify_key: str
+    context_issuer: str
+    context_audience: str
 
 
 def _parse_args() -> RunConfig:
@@ -63,6 +69,26 @@ def _parse_args() -> RunConfig:
         help="Comma-separated services list (empty string for global)",
     )
     parser.add_argument("--sensitivity", type=float, default=None, help="Optional analyze sensitivity")
+    parser.add_argument(
+        "--service-token",
+        default=os.getenv("BECERTAIN_EXPECTED_SERVICE_TOKEN", "replace_with_strong_token"),
+        help="Internal service token",
+    )
+    parser.add_argument(
+        "--context-key",
+        default=os.getenv("BECERTAIN_CONTEXT_VERIFY_KEY", "replace_with_strong_key"),
+        help="Context JWT signing key (HS256)",
+    )
+    parser.add_argument(
+        "--context-issuer",
+        default=os.getenv("BECERTAIN_CONTEXT_ISSUER", "beobservant-main"),
+        help="Context JWT issuer",
+    )
+    parser.add_argument(
+        "--context-audience",
+        default=os.getenv("BECERTAIN_CONTEXT_AUDIENCE", "becertain"),
+        help="Context JWT audience",
+    )
 
     args = parser.parse_args()
 
@@ -94,6 +120,10 @@ def _parse_args() -> RunConfig:
         warmup=args.warmup,
         services=services,
         sensitivity=args.sensitivity,
+        service_token=args.service_token,
+        context_verify_key=args.context_key,
+        context_issuer=args.context_issuer,
+        context_audience=args.context_audience,
     )
 
 
@@ -122,19 +152,44 @@ def _percentile(sorted_values: list[float], p: float) -> float:
     return sorted_values[lower] * (1.0 - frac) + sorted_values[upper] * frac
 
 
-async def _one_request(client: httpx.AsyncClient, cfg: RunConfig, idx: int) -> tuple[float, int, str | None, int]:
+async def _one_request(
+    client: httpx.AsyncClient,
+    cfg: RunConfig,
+    idx: int,
+) -> tuple[float, int, str | None, int, dict[str, int], dict[str, float]]:
     tenant_id = cfg.tenants[idx % len(cfg.tenants)]
     body = _payload(cfg, tenant_id)
+    now = int(time.time())
+    context_payload = {
+        "iss": cfg.context_issuer,
+        "aud": cfg.context_audience,
+        "iat": now,
+        "exp": now + 600,
+        "tenant_id": tenant_id,
+        "org_id": tenant_id,
+        "user_id": "stress-runner",
+        "username": "stress-runner",
+        "permissions": ["read:rca", "create:rca"],
+        "group_ids": [],
+        "role": "admin",
+        "is_superuser": True,
+    }
+    headers = {
+        "X-Service-Token": cfg.service_token,
+        "Authorization": f"Bearer {jwt.encode(context_payload, cfg.context_verify_key, algorithm='HS256')}",
+    }
 
     t0 = time.perf_counter()
     try:
-        resp = await client.post(cfg.endpoint, json=body)
+        resp = await client.post(cfg.endpoint, json=body, headers=headers)
     except Exception as exc:
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        return latency_ms, 0, f"transport:{type(exc).__name__}", 0
+        return latency_ms, 0, f"transport:{type(exc).__name__}", 0, {}, {}
 
     latency_ms = (time.perf_counter() - t0) * 1000.0
     warning_count = 0
+    suppression_counts: dict[str, int] = {}
+    anomaly_density: dict[str, float] = {}
     err = None
     if resp.status_code != 200:
         err = f"http:{resp.status_code}"
@@ -142,16 +197,38 @@ async def _one_request(client: httpx.AsyncClient, cfg: RunConfig, idx: int) -> t
         try:
             data = resp.json()
             warning_count = len(data.get("analysis_warnings") or [])
+            quality = data.get("quality") or {}
+            raw_suppression = quality.get("suppression_counts") or {}
+            if isinstance(raw_suppression, dict):
+                for key, value in raw_suppression.items():
+                    try:
+                        suppression_counts[str(key)] = int(value)
+                    except (TypeError, ValueError):
+                        continue
+            raw_density = quality.get("anomaly_density") or {}
+            if isinstance(raw_density, dict):
+                for key, value in raw_density.items():
+                    try:
+                        numeric = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if numeric == numeric:
+                        anomaly_density[str(key)] = numeric
         except Exception:
             pass
 
-    return latency_ms, resp.status_code, err, warning_count
+    return latency_ms, resp.status_code, err, warning_count, suppression_counts, anomaly_density
 
 
-async def _run_phase(client: httpx.AsyncClient, cfg: RunConfig, count: int, start_idx: int) -> list[tuple[float, int, str | None, int]]:
+async def _run_phase(
+    client: httpx.AsyncClient,
+    cfg: RunConfig,
+    count: int,
+    start_idx: int,
+) -> list[tuple[float, int, str | None, int, dict[str, int], dict[str, float]]]:
     next_index = start_idx
     lock = asyncio.Lock()
-    results: list[tuple[float, int, str | None, int]] = []
+    results: list[tuple[float, int, str | None, int, dict[str, int], dict[str, float]]] = []
 
     async def worker() -> None:
         nonlocal next_index
@@ -168,14 +245,24 @@ async def _run_phase(client: httpx.AsyncClient, cfg: RunConfig, count: int, star
     return results
 
 
-def _print_summary(cfg: RunConfig, elapsed_s: float, results: list[tuple[float, int, str | None, int]]) -> None:
+def _print_summary(
+    cfg: RunConfig,
+    elapsed_s: float,
+    results: list[tuple[float, int, str | None, int, dict[str, int], dict[str, float]]],
+) -> None:
     latencies = [r[0] for r in results]
     codes = Counter(r[1] for r in results)
     errors = Counter(r[2] for r in results if r[2])
     warnings = sum(r[3] for r in results)
+    suppression_totals: Counter[str] = Counter()
+    density_values: dict[str, list[float]] = defaultdict(list)
+    for _, _, _, _, suppression, density in results:
+        suppression_totals.update(suppression)
+        for metric_name, value in density.items():
+            density_values[metric_name].append(value)
 
     sorted_lat = sorted(latencies)
-    success = sum(1 for _, code, _, _ in results if code == 200)
+    success = sum(1 for _, code, _, _, _, _ in results if code == 200)
     rps = len(results) / elapsed_s if elapsed_s > 0 else 0.0
 
     print("\nStress test complete")
@@ -192,6 +279,15 @@ def _print_summary(cfg: RunConfig, elapsed_s: float, results: list[tuple[float, 
     print(f"latency p99   : {_percentile(sorted_lat, 0.99):.2f} ms")
     print(f"warnings total: {warnings}")
     print(f"status codes  : {dict(sorted(codes.items(), key=lambda kv: kv[0]))}")
+    if suppression_totals:
+        print(f"suppressions  : {dict(suppression_totals)}")
+    if density_values:
+        avg_density = {
+            metric_name: round(statistics.fmean(values), 4)
+            for metric_name, values in sorted(density_values.items())
+            if values
+        }
+        print(f"avg density   : {avg_density}")
     if errors:
         print(f"errors        : {dict(errors.most_common())}")
 

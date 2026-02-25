@@ -34,8 +34,8 @@ def _build_log_query(services: list[str] | None, requested_log_query: str | None
     if services:
         escaped = [re.escape(s) for s in services if s]
         if escaped:
-            return '{service=~"' + "|".join(escaped) + '"}'
-    return '{service=~".+"}'
+            return '{service_name=~"' + "|".join(escaped) + '"}'
+    return '{service_name=~".+"}'
 
 
 @router.post("/correlate", summary="Cross-signal temporal correlation without full RCA")

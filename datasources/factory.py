@@ -20,7 +20,7 @@ class DataSourceFactory:
     def create_logs(config, tenant_id):
         from config import LOGS_BACKEND_LOKI
         if config.logs_backend == LOGS_BACKEND_LOKI:
-            return LokiConnector(config.loki_url, tenant_id)
+            return LokiConnector(config.loki_url, tenant_id, timeout=config.connector_timeout)
         raise ValueError("Unsupported logs backend")
 
     @staticmethod
@@ -28,14 +28,14 @@ class DataSourceFactory:
         from config import METRICS_BACKEND_MIMIR, METRICS_BACKEND_VICTORIAMETRICS
 
         if config.metrics_backend == METRICS_BACKEND_MIMIR:
-            return MimirConnector(config.mimir_url, tenant_id)
+            return MimirConnector(config.mimir_url, tenant_id, timeout=config.connector_timeout)
         if config.metrics_backend == METRICS_BACKEND_VICTORIAMETRICS:
-            return VictoriaMetricsConnector(config.victoriametrics_url, tenant_id)
+            return VictoriaMetricsConnector(config.victoriametrics_url, tenant_id, timeout=config.connector_timeout)
         raise ValueError("Unsupported metrics backend")
 
     @staticmethod
     def create_traces(config, tenant_id):
         from config import TRACES_BACKEND_TEMPO
         if config.traces_backend == TRACES_BACKEND_TEMPO:
-            return TempoConnector(config.tempo_url, tenant_id)
+            return TempoConnector(config.tempo_url, tenant_id, timeout=config.connector_timeout)
         raise ValueError("Unsupported traces backend")

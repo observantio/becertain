@@ -1,0 +1,50 @@
+"""
+Readiness behavior tests for API health endpoint.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+import main as app_main
+from config import LOGS_BACKEND_LOKI, METRICS_BACKEND_MIMIR, TRACES_BACKEND_TEMPO
+
+
+@pytest.mark.asyncio
+async def test_ready_endpoint_returns_503_with_backend_details_when_not_ready():
+    app_main._backend_ready = False
+    app_main._backend_status = {"mimir": "failed: timeout", "tempo": "ready"}
+    response = await app_main.ready()
+    payload = json.loads(response.body.decode("utf-8"))
+    assert response.status_code == 503
+    assert payload["ready"] is False
+    assert payload["backends"]["mimir"].startswith("failed:")
+
+
+@pytest.mark.asyncio
+async def test_wait_for_all_bg_sets_backend_ready_false_on_partial_failure(monkeypatch):
+    class DummySettings:
+        logs_backend = LOGS_BACKEND_LOKI
+        metrics_backend = METRICS_BACKEND_MIMIR
+        traces_backend = TRACES_BACKEND_TEMPO
+        loki_url = "http://loki"
+        mimir_url = "http://mimir"
+        victoriametrics_url = "http://victoriametrics"
+        tempo_url = "http://tempo"
+        startup_timeout = 1
+
+    async def fake_wait_for(name, url, timeout, headers=None, accept_status=(200,)):
+        if name == METRICS_BACKEND_MIMIR:
+            raise RuntimeError("mimir down")
+        return None
+
+    monkeypatch.setattr(app_main, "wait_for", fake_wait_for)
+    app_main._backend_ready = True
+    app_main._backend_status = {}
+
+    await app_main._wait_for_all_bg(DummySettings(), "tenant-a")
+
+    assert app_main._backend_ready is False
+    assert app_main._backend_status[METRICS_BACKEND_MIMIR].startswith("failed:")

@@ -30,10 +30,19 @@ def make_logburst(start, end):
     )
 
 
-def make_latency():
+def make_latency(service="s", window_start=0, window_end=60):
     return ServiceLatency(
-        service="s", operation="o", p50_ms=10, p95_ms=20, p99_ms=30,
-        apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low
+        service=service,
+        operation="o",
+        p50_ms=10,
+        p95_ms=20,
+        p99_ms=30,
+        apdex=0.5,
+        error_rate=0,
+        sample_count=1,
+        severity=Severity.low,
+        window_start=window_start,
+        window_end=window_end,
     )
 
 
@@ -88,13 +97,59 @@ def test_correlate_only_links_temporally_and_name_relevant_latency():
     latency = [
         ServiceLatency(
             service="checkout", operation="o", p50_ms=10, p95_ms=20, p99_ms=30,
-            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low
+            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low,
+            window_start=90.0, window_end=110.0,
         ),
         ServiceLatency(
             service="inventory", operation="o", p50_ms=10, p95_ms=20, p99_ms=30,
-            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low
+            apdex=0.5, error_rate=0, sample_count=1, severity=Severity.low,
+            window_start=90.0, window_end=110.0,
         ),
     ]
     events = correlate(anomalies, bursts, latency, window_seconds=30)
     assert events
     assert [s.service for s in events[0].service_latency] == ["checkout"]
+
+
+def test_correlate_requires_temporal_overlap_for_latency():
+    anomalies = [
+        MetricAnomaly(
+            metric_name="request_total{service=checkout}",
+            timestamp=100,
+            value=1,
+            change_type=ChangeType.spike,
+            z_score=4,
+            mad_score=4,
+            isolation_score=0,
+            expected_range=(0, 1),
+            severity=Severity.high,
+            description="",
+        )
+    ]
+    bursts = [make_logburst(95, 105)]
+    latency = [make_latency(service="checkout", window_start=400, window_end=450)]
+    events = correlate(anomalies, bursts, latency, window_seconds=30)
+    assert events
+    assert events[0].service_latency == []
+
+
+def test_correlate_does_not_use_substring_service_match():
+    anomalies = [
+        MetricAnomaly(
+            metric_name="request_total{service=cart}",
+            timestamp=100,
+            value=1,
+            change_type=ChangeType.spike,
+            z_score=4,
+            mad_score=4,
+            isolation_score=0,
+            expected_range=(0, 1),
+            severity=Severity.high,
+            description="",
+        )
+    ]
+    bursts = [make_logburst(95, 105)]
+    latency = [make_latency(service="cart-db", window_start=95, window_end=105)]
+    events = correlate(anomalies, bursts, latency, window_seconds=30)
+    assert events
+    assert events[0].service_latency == []

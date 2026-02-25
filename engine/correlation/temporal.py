@@ -11,6 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import List, Set
 
 from api.responses import MetricAnomaly, LogBurst, ServiceLatency
@@ -41,6 +42,41 @@ def _tokenize(value: str) -> set[str]:
     for ch in ".-/":
         raw = raw.replace(ch, " ")
     return {part for part in raw.split() if part}
+
+
+_SERVICE_LABEL_RE = re.compile(r"(?:service(?:\.name|_name)?|job)\s*=\s*([^,}]+)")
+
+
+def _normalize_service(value: object) -> str:
+    return str(value or "").strip().strip('"').strip("'").lower()
+
+
+def _service_tokens_from_metric_name(metric_name: str) -> set[str]:
+    text = str(metric_name or "")
+    matches = _SERVICE_LABEL_RE.findall(text)
+    services = {_normalize_service(match) for match in matches if _normalize_service(match)}
+    if services:
+        return services
+    return set()
+
+
+def _service_tokens_from_log_burst(burst: object) -> set[str]:
+    services: set[str] = set()
+    stream = getattr(burst, "stream", None)
+    if isinstance(stream, dict):
+        for key in ("service", "service_name", "service.name", "job"):
+            token = _normalize_service(stream.get(key))
+            if token:
+                services.add(token)
+    return services
+
+
+def _latency_window(latency: ServiceLatency) -> tuple[float | None, float | None]:
+    start = _safe_float(getattr(latency, "window_start", None))
+    end = _safe_float(getattr(latency, "window_end", None))
+    if start is not None and end is not None and end < start:
+        start, end = end, start
+    return start, end
 
 
 def _safe_float(value) -> float | None:
@@ -95,18 +131,28 @@ def correlate(
                 continue
             if _overlap(w_start, w_end, burst_start, burst_end):
                 lb.append(burst)
-        metric_tokens: set[str] = set()
+        metric_services: set[str] = set()
         for anomaly in ma:
-            metric_tokens.update(_tokenize(getattr(anomaly, "metric_name", "")))
+            metric_services.update(_service_tokens_from_metric_name(getattr(anomaly, "metric_name", "")))
+        log_services: set[str] = set()
+        for burst in lb:
+            log_services.update(_service_tokens_from_log_burst(burst))
+        correlated_services = metric_services | log_services
 
         sl = []
-        if metric_tokens:
-            for latency in service_latency:
-                service_name = str(getattr(latency, "service", "")).strip().lower()
-                if not service_name:
-                    continue
-                if service_name in metric_tokens or any(service_name in token or token in service_name for token in metric_tokens):
-                    sl.append(latency)
+        for latency in service_latency:
+            service_name = _normalize_service(getattr(latency, "service", ""))
+            if not service_name:
+                continue
+            if not correlated_services:
+                continue
+            if service_name not in correlated_services:
+                continue
+            latency_start, latency_end = _latency_window(latency)
+            if latency_start is None or latency_end is None:
+                continue
+            if _overlap(w_start, w_end, latency_start, latency_end):
+                sl.append(latency)
 
         sig = len(ma) + len(lb) + len(sl)
         if sig < 2:

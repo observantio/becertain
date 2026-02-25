@@ -16,6 +16,7 @@ import logging
 import math
 import re
 import time
+from collections import defaultdict
 from typing import Dict, List, Tuple, cast
 
 import numpy as np
@@ -37,7 +38,12 @@ from engine.slo import evaluate as slo_evaluate
 from engine.topology import DependencyGraph
 from store import baseline as baseline_store, granger as granger_store
 from api.requests import AnalyzeRequest
-from api.responses import AnalysisReport, RootCause as RootCauseModel, SloBurnAlert as SloBurnAlertModel
+from api.responses import (
+    AnalysisQuality,
+    AnalysisReport,
+    RootCause as RootCauseModel,
+    SloBurnAlert as SloBurnAlertModel,
+)
 from engine.enums import Severity, Signal
 
 log = logging.getLogger(__name__)
@@ -94,8 +100,8 @@ def _build_log_query(services: list[str] | None, requested_log_query: str | None
     if services:
         escaped = [re.escape(s) for s in services if s]
         if escaped:
-            return '{service=~"' + "|".join(escaped) + '"}'
-    return '{service=~".+"}'
+            return '{service_name=~"' + "|".join(escaped) + '"}'
+    return '{service_name=~".+"}'
 
 
 def _to_root_cause_model(rc) -> RootCauseModel:
@@ -311,6 +317,193 @@ def _limit_analyzer_output(
     )
 
 
+def _signal_key(value: object) -> str:
+    if isinstance(value, Signal):
+        return value.value
+    text = str(value or "").strip().lower()
+    if text.startswith("metric"):
+        return Signal.metrics.value
+    if text.startswith("log"):
+        return Signal.logs.value
+    if text.startswith("trace"):
+        return Signal.traces.value
+    if text.startswith("event") or text.startswith("deploy"):
+        return Signal.events.value
+    return text
+
+
+def _root_cause_signal_count(root_cause: RootCauseModel) -> int:
+    signals = getattr(root_cause, "contributing_signals", []) or []
+    keys = {_signal_key(signal) for signal in signals if _signal_key(signal)}
+    keys.discard("")
+    return len(keys)
+
+
+def _root_cause_corroboration_summary(root_cause: RootCauseModel) -> str:
+    count = _root_cause_signal_count(root_cause)
+    signals = sorted({
+        _signal_key(signal)
+        for signal in (getattr(root_cause, "contributing_signals", []) or [])
+        if _signal_key(signal)
+    })
+    if not signals:
+        return "single-signal evidence"
+    return f"{count} corroborating signal(s): {', '.join(signals)}"
+
+
+def _build_selection_score_components(ranked_item: object, root_cause: RootCauseModel) -> dict[str, float]:
+    components: dict[str, float] = {}
+    for key, value in (
+        ("rule_confidence", getattr(root_cause, "confidence", None)),
+        ("ml_score", getattr(ranked_item, "ml_score", None)),
+        ("final_score", getattr(ranked_item, "final_score", None)),
+    ):
+        try:
+            number = float(value)
+            if math.isfinite(number):
+                components[key] = round(number, 6)
+        except (TypeError, ValueError):
+            continue
+
+    importances = getattr(ranked_item, "feature_importance", None)
+    if isinstance(importances, dict):
+        for name, value in importances.items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(number):
+                components[f"feature_importance:{name}"] = round(number, 6)
+    return components
+
+
+def _compute_anomaly_density(metric_anomalies: list, duration_seconds: float) -> dict[str, float]:
+    if not metric_anomalies:
+        return {}
+    hours = max(float(duration_seconds) / 3600.0, 1.0 / 60.0)
+    counts: dict[str, int] = defaultdict(int)
+    for anomaly_item in metric_anomalies:
+        metric_name = str(getattr(anomaly_item, "metric_name", "metric")).strip() or "metric"
+        counts[metric_name] += 1
+    return {name: round(count / hours, 4) for name, count in counts.items()}
+
+
+def _apply_precision_quality_gates(
+    *,
+    metric_anomalies: list,
+    root_causes: list[RootCauseModel],
+    ranked_causes: list,
+    duration_seconds: float,
+    suppression_counts: dict[str, int],
+    warnings: list[str],
+) -> tuple[list, list[RootCauseModel], list, AnalysisQuality]:
+    profile = str(getattr(settings, "quality_gating_profile", "precision_strict_v1")).strip() or "precision_strict_v1"
+    is_precision = profile.lower().startswith("precision")
+    hours = max(float(duration_seconds) / 3600.0, 1.0 / 60.0)
+
+    if is_precision and metric_anomalies:
+        max_density = max(0.0, float(getattr(settings, "quality_max_anomaly_density_per_metric_per_hour", 0.0)))
+        if max_density > 0:
+            keep_per_metric = max(1, int(math.ceil(max_density * hours)))
+            by_metric: dict[str, list] = defaultdict(list)
+            for item in metric_anomalies:
+                metric_name = str(getattr(item, "metric_name", "metric")).strip() or "metric"
+                by_metric[metric_name].append(item)
+            filtered: list = []
+            suppressed = 0
+            for items in by_metric.values():
+                if len(items) <= keep_per_metric:
+                    filtered.extend(items)
+                    continue
+                ranked = sorted(
+                    items,
+                    key=lambda a: (
+                        getattr(getattr(a, "severity", Severity.low), "weight", lambda: 0)(),
+                        abs(float(getattr(a, "z_score", 0.0))),
+                        abs(float(getattr(a, "mad_score", 0.0))),
+                        float(getattr(a, "timestamp", 0.0)),
+                    ),
+                    reverse=True,
+                )
+                filtered.extend(ranked[:keep_per_metric])
+                suppressed += len(items) - keep_per_metric
+            metric_anomalies = sorted(filtered, key=lambda a: (a.timestamp, a.metric_name))
+            if suppressed > 0:
+                suppression_counts["density_suppressed_metric_anomalies"] = (
+                    suppression_counts.get("density_suppressed_metric_anomalies", 0) + suppressed
+                )
+                warnings.append(
+                    f"Quality gate suppressed {suppressed} metric anomaly(ies) above density cap "
+                    f"{max_density}/metric/hour."
+                )
+
+    if root_causes:
+        min_corr = max(1, int(getattr(settings, "quality_min_corroboration_signals", 2)))
+        max_without = max(1, int(getattr(settings, "quality_max_root_causes_without_multisignal", 1)))
+        low_conf_cutoff = max(float(getattr(settings, "rca_min_confidence_display", 0.05)), 0.10)
+
+        if is_precision:
+            filtered_root_causes: list[RootCauseModel] = []
+            suppressed_low_conf = 0
+            for cause in root_causes:
+                if float(getattr(cause, "confidence", 0.0)) < low_conf_cutoff and len(root_causes) > 1:
+                    suppressed_low_conf += 1
+                    continue
+                filtered_root_causes.append(cause)
+            if filtered_root_causes:
+                root_causes = filtered_root_causes
+            if suppressed_low_conf > 0:
+                suppression_counts["low_confidence_root_causes"] = (
+                    suppression_counts.get("low_confidence_root_causes", 0) + suppressed_low_conf
+                )
+                warnings.append(
+                    f"Quality gate suppressed {suppressed_low_conf} low-confidence root cause(s) below {low_conf_cutoff:.2f}."
+                )
+
+            multi_signal = [cause for cause in root_causes if _root_cause_signal_count(cause) >= min_corr]
+            if not multi_signal and len(root_causes) > max_without:
+                suppressed_without_multi = len(root_causes) - max_without
+                root_causes = root_causes[:max_without]
+                suppression_counts["root_causes_without_multisignal"] = (
+                    suppression_counts.get("root_causes_without_multisignal", 0) + suppressed_without_multi
+                )
+                warnings.append(
+                    f"Quality gate suppressed {suppressed_without_multi} root cause(s) without multi-signal corroboration."
+                )
+
+        allowed_hypotheses = {str(cause.hypothesis) for cause in root_causes}
+        ranked_before = len(ranked_causes)
+        ranked_causes = [
+            item
+            for item in ranked_causes
+            if str(getattr(getattr(item, "root_cause", None), "hypothesis", "")) in allowed_hypotheses
+        ]
+        dropped_ranked = ranked_before - len(ranked_causes)
+        if dropped_ranked > 0:
+            suppression_counts["suppressed_ranked_causes"] = suppression_counts.get("suppressed_ranked_causes", 0) + dropped_ranked
+
+        for cause in root_causes:
+            if not getattr(cause, "corroboration_summary", None):
+                cause.corroboration_summary = _root_cause_corroboration_summary(cause)
+            diagnostics = dict(getattr(cause, "suppression_diagnostics", {}) or {})
+            diagnostics.setdefault("gating_profile", profile)
+            signal_count = _root_cause_signal_count(cause)
+            diagnostics.setdefault("signal_count", signal_count)
+            diagnostics["min_corroboration_signals"] = min_corr
+            diagnostics["meets_min_corroboration_signals"] = signal_count >= min_corr
+            cause.suppression_diagnostics = diagnostics
+
+    quality = AnalysisQuality(
+        anomaly_density=_compute_anomaly_density(metric_anomalies, duration_seconds),
+        suppression_counts={k: int(v) for k, v in suppression_counts.items() if int(v) > 0},
+        gating_profile=profile,
+        confidence_calibration_version=str(
+            getattr(settings, "quality_confidence_calibration_version", "calib_2026_02_25")
+        ),
+    )
+    return metric_anomalies, root_causes, ranked_causes, quality
+
+
 async def _process_one_metric_series(
     req: AnalyzeRequest,
     query_string: str,
@@ -318,6 +511,7 @@ async def _process_one_metric_series(
     ts: list[float],
     vals: list[float],
     z_threshold: float,
+    analysis_window_seconds: float,
 ):
     try:
         baseline = await baseline_store.compute_and_persist(req.tenant_id, metric_name, ts, vals, z_threshold)
@@ -325,19 +519,26 @@ async def _process_one_metric_series(
         baseline = baseline_compute(ts, vals, z_threshold=z_threshold)
 
     metric_anomalies = anomaly.detect(metric_name, ts, vals, req.sensitivity)
+    sigma_multiplier = float(z_threshold) if z_threshold and math.isfinite(float(z_threshold)) else float(
+        settings.cusum_threshold_sigma
+    )
+    sigma_multiplier = max(1.0, sigma_multiplier)
     try:
-        change_points = changepoint_detect(ts, vals, baseline.std or z_threshold, metric_name=metric_name)
+        change_points = changepoint_detect(ts, vals, threshold_sigma=sigma_multiplier, metric_name=metric_name)
     except TypeError:
         # Backward-compatible path for monkeypatched/legacy detector signatures.
-        change_points = changepoint_detect(ts, vals, baseline.std or z_threshold)
+        change_points = changepoint_detect(ts, vals, sigma_multiplier)
 
     threshold = next((v for k, v in FORECAST_THRESHOLDS.items() if k in query_string), None)
-    if threshold:
+    if threshold and analysis_window_seconds >= float(getattr(settings, "analyzer_forecast_min_window_seconds", 0.0)):
         fc = forecast(metric_name, ts, vals, threshold, req.forecast_horizon_seconds)
     else:
         fc = None
 
-    deg = analyze_degradation(metric_name, ts, vals)
+    if analysis_window_seconds >= float(getattr(settings, "analyzer_degradation_min_window_seconds", 0.0)):
+        deg = analyze_degradation(metric_name, ts, vals)
+    else:
+        deg = None
 
     return metric_anomalies, change_points, fc, deg
 
@@ -347,6 +548,7 @@ async def _process_metrics(
     req: AnalyzeRequest,
     all_metric_queries: List[str],
     z_threshold: float,
+    analysis_window_seconds: float,
 ) -> Tuple[list, List[ChangePoint], list, list, Dict[str, List[float]]]:
     metrics_raw = await fetch_metrics(provider, all_metric_queries, req.start, req.end, req.step)
 
@@ -357,7 +559,15 @@ async def _process_metrics(
     ]
 
     tasks = [
-        _process_one_metric_series(req, query_string, metric_name, ts, vals, z_threshold)
+        _process_one_metric_series(
+            req,
+            query_string,
+            metric_name,
+            ts,
+            vals,
+            z_threshold,
+            analysis_window_seconds,
+        )
         for query_string, metric_name, ts, vals in series_list
     ]
     processed = await asyncio.gather(*tasks, return_exceptions=True)
@@ -435,6 +645,8 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     tenant_id = req.tenant_id
     primary_service = req.services[0] if req.services else None
     warnings: list[str] = []
+    suppression_counts: dict[str, int] = {}
+    analysis_window_seconds = float(max(0, req.end - req.start))
 
     log_query = _build_log_query(req.services, req.log_query)
     trace_filters = {"service.name": primary_service} if primary_service else {}
@@ -475,7 +687,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     metrics_started = time.perf_counter()
     try:
         metric_anomalies, change_points, forecasts, degradation_signals, series_map = await asyncio.wait_for(
-            _process_metrics(provider, req, all_metric_queries, z_threshold),
+            _process_metrics(provider, req, all_metric_queries, z_threshold, analysis_window_seconds),
             timeout=float(settings.analyzer_metrics_timeout_seconds),
         )
     except TimeoutError:
@@ -498,11 +710,13 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     forecasts = _dedupe_by_metric_with_severity(forecasts)
     degradation_signals = _dedupe_by_metric_with_severity(degradation_signals)
     if raw_metric_anomaly_count > len(metric_anomalies):
+        suppression_counts["duplicate_metric_anomalies"] = raw_metric_anomaly_count - len(metric_anomalies)
         warnings.append(
             f"Deduplicated metric anomalies from {raw_metric_anomaly_count} to {len(metric_anomalies)} "
             "to reduce duplicate series noise."
         )
     if raw_change_point_count > len(change_points):
+        suppression_counts["duplicate_change_points"] = raw_change_point_count - len(change_points)
         warnings.append(
             f"Deduplicated change points from {raw_change_point_count} to {len(change_points)} "
             "to reduce duplicate series noise."
@@ -512,10 +726,57 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     logs_started = time.perf_counter()
     log_bursts, log_patterns = [], []
     if isinstance(logs_raw, dict):
+        log_entries = logs_raw.get("data", {}).get("result", [])
+        if not log_entries and not (req.log_query or "").strip():
+            fallback_queries: list[str] = []
+            if req.services:
+                escaped = [re.escape(s) for s in req.services if s]
+                if escaped:
+                    pattern = "|".join(escaped)
+                    fallback_queries.extend(
+                        [
+                            '{service_name=~"' + pattern + '"}',
+                            '{service=~"' + pattern + '"}',
+                        ]
+                    )
+            else:
+                fallback_queries.extend(
+                    [
+                        '{service_name=~".+"}',
+                        '{service=~".+"}',
+                    ]
+                )
+            fallback_queries.append("{}")
+
+            seen_selectors: set[str] = set()
+            filtered_fallbacks: list[str] = []
+            for selector in fallback_queries:
+                if selector == log_query or selector in seen_selectors:
+                    continue
+                seen_selectors.add(selector)
+                filtered_fallbacks.append(selector)
+
+            for selector in filtered_fallbacks:
+                try:
+                    fallback_logs = await provider.query_logs(
+                        query=selector,
+                        start=req.start * 1_000_000_000,
+                        end=req.end * 1_000_000_000,
+                    )
+                except Exception as exc:
+                    log.debug("Logs fallback selector failed query=%s error=%s", selector, exc)
+                    continue
+                if isinstance(fallback_logs, dict) and fallback_logs.get("data", {}).get("result"):
+                    logs_raw = fallback_logs
+                    log_entries = logs_raw.get("data", {}).get("result", [])
+                    log.info("Logs selector fallback succeeded using query=%s", selector)
+                    break
+
+        if not log_entries:
+            warnings.append("Logs query returned no entries in the selected window.")
+
         log_bursts = logs.detect_bursts(logs_raw)
         log_patterns = logs.analyze(logs_raw)
-        if not logs_raw.get("data", {}).get("result"):
-            warnings.append("Logs query returned no entries in the selected window.")
     elif isinstance(logs_raw, Exception):
         msg = f"Logs unavailable: {logs_raw}"
         warnings.append(msg)
@@ -627,13 +888,25 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     ranked_causes = rank(root_causes, correlated_events)
     pydantic_root_causes: list[RootCauseModel] = []
     ranked_valid: list = []
+    hypothesis_to_ranked: dict[str, object] = {}
     for item in ranked_causes:
         try:
-            pydantic_root_causes.append(_to_root_cause_model(item.root_cause))
+            root_cause_model = _to_root_cause_model(item.root_cause)
+            pydantic_root_causes.append(root_cause_model)
             ranked_valid.append(item)
+            hypothesis = str(root_cause_model.hypothesis)
+            current = hypothesis_to_ranked.get(hypothesis)
+            if current is None or float(getattr(item, "final_score", 0.0)) > float(getattr(current, "final_score", 0.0)):
+                hypothesis_to_ranked[hypothesis] = item
         except Exception as exc:
+            suppression_counts["invalid_root_cause_drops"] = suppression_counts.get("invalid_root_cause_drops", 0) + 1
             warnings.append(f"Dropped invalid root cause model during normalization: {exc}")
     ranked_causes = ranked_valid
+    for cause in pydantic_root_causes:
+        ranked_item = hypothesis_to_ranked.get(str(cause.hypothesis))
+        if ranked_item is None:
+            continue
+        cause.selection_score_components = _build_selection_score_components(ranked_item, cause)
     (
         metric_anomalies,
         change_points,
@@ -650,12 +923,36 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         granger_results=fresh_granger,
         warnings=warnings,
     )
+    metric_anomalies, pydantic_root_causes, ranked_causes, quality = _apply_precision_quality_gates(
+        metric_anomalies=metric_anomalies,
+        root_causes=pydantic_root_causes,
+        ranked_causes=ranked_causes,
+        duration_seconds=float(req.end - req.start),
+        suppression_counts=suppression_counts,
+        warnings=warnings,
+    )
     log.debug("analyzer stage=causal duration=%.4fs", time.perf_counter() - causal_started)
 
     severity = _overall_severity(
         metric_anomalies, log_bursts, log_patterns,
         service_latency, slo_alerts, forecasts,
     )
+    has_actionable_now = bool(
+        metric_anomalies
+        or log_bursts
+        or log_patterns
+        or service_latency
+        or error_propagation
+        or slo_alerts
+        or pydantic_root_causes
+    )
+    if not has_actionable_now and (forecasts or degradation_signals or change_points):
+        if severity.weight() > Severity.medium.weight():
+            warnings.append(
+                "Overall severity was capped at MEDIUM because only predictive signals were present "
+                "without corroborating actionable anomalies."
+            )
+            severity = Severity.medium
 
     report = AnalysisReport(
         tenant_id=tenant_id,
@@ -680,6 +977,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         analysis_warnings=warnings,
         overall_severity=severity,
         summary="",
+        quality=quality,
     )
     report.summary = _summary(report)
     log.info(

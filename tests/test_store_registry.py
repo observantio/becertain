@@ -10,9 +10,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
-import pytest
-
-from store import registry as sreg
+from engine.enums import Signal
+from engine import registry as sreg
 from store import weights as wstore
 
 
@@ -37,7 +36,7 @@ async def test_registry_state_update_and_reset(monkeypatch):
 
     state = await sreg.TenantRegistry().get_state(tid)
     assert state.update_count == 0
-    assert state.weights == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
+    assert state.weights_serializable == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
 
     await sreg.TenantRegistry().update_weight(tid, "metrics", True)
     assert saved[tid]["weights"]["metrics"] > 0.3
@@ -45,8 +44,8 @@ async def test_registry_state_update_and_reset(monkeypatch):
 
     reg = sreg.TenantRegistry()
     state = await reg.get_state(tid)
-    state.update_weight("logs", False)
+    state.update_weight(Signal.logs, False)
     await reg.reset_weights(tid)
     state2 = await reg.get_state(tid)
     assert state2.update_count == 0
-    assert state2.weights == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
+    assert state2.weights_serializable == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}

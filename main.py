@@ -138,7 +138,7 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
         log.info("All backends ready — engine fully operational")
     else:
         log.warning("Some backends failed readiness — partial functionality available")
-        _backend_ready = True  
+        _backend_ready = False
 
 
 @asynccontextmanager

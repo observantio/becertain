@@ -10,7 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 from enum import Enum
 import numpy as np
@@ -86,6 +86,8 @@ class ServiceLatency(NpModel):
     error_rate: float
     sample_count: int
     severity: Severity
+    window_start: Optional[float] = None
+    window_end: Optional[float] = None
 
 
 class ErrorPropagation(NpModel):
@@ -104,6 +106,9 @@ class RootCause(NpModel):
     contributing_signals: List[Signal]
     recommended_action: str
     severity: Severity
+    corroboration_summary: Optional[str] = None
+    suppression_diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    selection_score_components: Dict[str, float] = Field(default_factory=dict)
 
 
 class SloBurnAlert(NpModel):
@@ -124,6 +129,13 @@ class BudgetStatus(NpModel):
     budget_used_pct: float
     remaining_minutes: float
     on_track: bool
+
+
+class AnalysisQuality(NpModel):
+    anomaly_density: Dict[str, float] = Field(default_factory=dict)
+    suppression_counts: Dict[str, int] = Field(default_factory=dict)
+    gating_profile: str
+    confidence_calibration_version: str
 
 
 class AnalysisReport(NpModel):
@@ -150,6 +162,7 @@ class AnalysisReport(NpModel):
     analysis_warnings: List[str] = []
     overall_severity: Severity
     summary: str
+    quality: Optional[AnalysisQuality] = None
 
 
 # Job-related response models and supporting enum:

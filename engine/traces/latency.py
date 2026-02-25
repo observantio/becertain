@@ -19,6 +19,56 @@ from engine.enums import Severity
 from api.responses import ServiceLatency
 from config import settings
 
+
+def _to_seconds(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(numeric):
+        return None
+    # Heuristic conversion for unix timestamps encoded in ns/us/ms.
+    if numeric > 1e17:
+        return numeric / 1e9
+    if numeric > 1e14:
+        return numeric / 1e6
+    if numeric > 1e11:
+        return numeric / 1e3
+    return numeric
+
+
+def _trace_window_seconds(trace: Dict[str, Any], duration_ms: float) -> tuple[float | None, float | None]:
+    start = None
+    for key in (
+        "startTimeUnixNano",
+        "startTime",
+        "rootSpanStartTimeUnixNano",
+        "traceStartTimeUnixNano",
+        "traceStartTime",
+        "timestamp",
+        "timeUnixNano",
+    ):
+        start = _to_seconds(trace.get(key))
+        if start is not None:
+            break
+
+    end = None
+    for key in ("endTimeUnixNano", "endTime", "traceEndTimeUnixNano", "traceEndTime"):
+        end = _to_seconds(trace.get(key))
+        if end is not None:
+            break
+
+    if start is not None and end is None and duration_ms >= 0:
+        end = start + (duration_ms / 1000.0)
+    if start is None and end is not None and duration_ms >= 0:
+        start = end - (duration_ms / 1000.0)
+    if start is not None and end is not None and end < start:
+        start, end = end, start
+    return start, end
+
+
 def _apdex(durations_ms: np.ndarray, t_ms: float) -> float:
     if durations_ms.size == 0:
         return 1.0
@@ -54,7 +104,16 @@ def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> 
     if apdex_t_ms is None:
         apdex_t_ms = settings.trace_latency_apdex_t_ms
 
-    buckets: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"durations": [], "errors": 0, "total": 0, "op": ""})
+    buckets: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "durations": [],
+            "errors": 0,
+            "total": 0,
+            "op": "",
+            "window_start": None,
+            "window_end": None,
+        }
+    )
 
     for trace in tempo_response.get("traces", []):
         service = trace.get("rootServiceName", "unknown")
@@ -66,6 +125,13 @@ def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> 
         bucket["durations"].append(duration_ms)
         bucket["total"] += 1
         bucket["op"] = operation
+        start_s, end_s = _trace_window_seconds(trace, duration_ms)
+        if start_s is not None:
+            current_start = bucket["window_start"]
+            bucket["window_start"] = start_s if current_start is None else min(float(current_start), start_s)
+        if end_s is not None:
+            current_end = bucket["window_end"]
+            bucket["window_end"] = end_s if current_end is None else max(float(current_end), end_s)
 
         span_sets = []
         if isinstance(trace.get("spanSet"), dict):
@@ -109,6 +175,8 @@ def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> 
             error_rate=round(error_rate, 4),
             sample_count=bucket["total"],
             severity=sev,
+            window_start=round(float(bucket["window_start"]), 6) if bucket["window_start"] is not None else None,
+            window_end=round(float(bucket["window_end"]), 6) if bucket["window_end"] is not None else None,
         ))
 
     results.sort(key=lambda s: s.severity.weight(), reverse=True)

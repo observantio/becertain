@@ -160,10 +160,11 @@ class Settings(BaseSettings):
     # default tenant (used by main and tests)
     default_tenant_id: str = BECERTAIN_DEFAULT_TENANT_ID
 
-    mad_threshold: float = float(os.getenv("BECERTAIN_MAD_THRESHOLD", "3.5"))
-    zscore_threshold: float = float(os.getenv("BECERTAIN_ZSCORE_THRESHOLD", "2.5"))
-    cusum_threshold: float = float(os.getenv("BECERTAIN_CUSUM_THRESHOLD", "5.0"))
-    min_samples: int = int(os.getenv("BECERTAIN_MIN_SAMPLES", "8"))
+    # Precision-first business defaults: favor signal quality over recall.
+    mad_threshold: float = float(os.getenv("BECERTAIN_MAD_THRESHOLD", "4.0"))
+    zscore_threshold: float = float(os.getenv("BECERTAIN_ZSCORE_THRESHOLD", "3.0"))
+    cusum_threshold: float = float(os.getenv("BECERTAIN_CUSUM_THRESHOLD", "6.0"))
+    min_samples: int = int(os.getenv("BECERTAIN_MIN_SAMPLES", "12"))
 
     burst_ratio_thresholds: List[Tuple[float, str]] = [
         (10.0, "critical"),
@@ -177,37 +178,37 @@ class Settings(BaseSettings):
     severity_score_medium: float = 0.25
 
     # trace error propagation detection thresholds
-    trace_error_rate_threshold: float = 0.05
-    trace_error_severity_high: float = 0.10
-    trace_error_severity_critical: float = 0.25
+    trace_error_rate_threshold: float = 0.08
+    trace_error_severity_high: float = 0.15
+    trace_error_severity_critical: float = 0.30
 
     # trace latency severity and apdex configuration
-    trace_latency_p99_critical: float = 5000.0
-    trace_latency_p99_high: float = 2000.0
-    trace_latency_p99_medium: float = 500.0
-    trace_latency_error_critical: float = 0.25
-    trace_latency_error_high: float = 0.10
-    trace_latency_error_medium: float = 0.02
-    trace_latency_apdex_poor: float = 0.5
-    trace_latency_apdex_marginal: float = 0.7
+    trace_latency_p99_critical: float = 6000.0
+    trace_latency_p99_high: float = 2500.0
+    trace_latency_p99_medium: float = 800.0
+    trace_latency_error_critical: float = 0.30
+    trace_latency_error_high: float = 0.12
+    trace_latency_error_medium: float = 0.03
+    trace_latency_apdex_poor: float = 0.45
+    trace_latency_apdex_marginal: float = 0.65
     trace_latency_apdex_t_ms: float = 500.0
 
     # baseline computation defaults
-    baseline_zscore_threshold: float = 3.0
+    baseline_zscore_threshold: float = 3.2
     baseline_min_samples: int = 6
     baseline_seasonal_min_samples: int = 24
 
     # changepoint detection
     cusum_window: int = 10
-    cusum_relative_cutoff: float = 0.5
+    cusum_relative_cutoff: float = 0.6
     # we keep legacy name for backwards compatibility but allow override
     cusum_threshold_sigma: float = cusum_threshold
 
     # correlation/temporal scoring
-    max_lag_seconds: float = 120.0
-    correlation_window_seconds: float = 60.0
-    correlation_weight_time: float = 0.25
-    correlation_weight_latency: float = 0.40
+    max_lag_seconds: float = 90.0
+    correlation_window_seconds: float = 45.0
+    correlation_weight_time: float = 0.30
+    correlation_weight_latency: float = 0.35
     correlation_weight_errors: float = 0.35
     correlation_score_max: float = 1.0
     correlation_errors_cap: float = 0.35
@@ -231,26 +232,46 @@ class Settings(BaseSettings):
     # rca heuristics
     rca_window_seconds: float = 300.0
     rca_weights: Dict[str, float] = {"metrics": 0.40, "logs": 0.25, "traces": 0.35}
-    rca_deploy_score_cutoff: float = 0.6
+    rca_deploy_score_cutoff: float = 0.65
     rca_errorprop_max: float = 0.95
     rca_baseline_base: float = 0.5
     rca_baseline_affected_factor: float = 0.1
-    rca_min_confidence_display: float = 0.05
+    rca_min_confidence_display: float = 0.12
 
     # analyzer tuning
-    analyzer_sensitivity_factor: float = 0.67
+    analyzer_sensitivity_factor: float = 0.75
     analyzer_max_parallel_metric_queries: int = 8
     analyzer_max_parallel_cpu_tasks: int = 4
     analyzer_granger_max_series: int = 20
     analyzer_granger_min_samples: int = 20
-    analyzer_fetch_timeout_seconds: float = 8.0
-    analyzer_metrics_timeout_seconds: float = 12.0
-    analyzer_causal_timeout_seconds: float = 5.0
-    analyzer_max_metric_anomalies: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_METRIC_ANOMALIES", "250"))
-    analyzer_max_change_points: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CHANGE_POINTS", "200"))
-    analyzer_max_granger_pairs: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_GRANGER_PAIRS", "100"))
-    analyzer_max_clusters: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CLUSTERS", "30"))
-    analyzer_max_root_causes: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_ROOT_CAUSES", "15"))
+    analyzer_fetch_timeout_seconds: float = 10.0
+    analyzer_metrics_timeout_seconds: float = 15.0
+    analyzer_causal_timeout_seconds: float = 6.0
+    analyzer_forecast_min_window_seconds: float = float(
+        os.getenv("BECERTAIN_ANALYZER_FORECAST_MIN_WINDOW_SECONDS", "900")
+    )
+    analyzer_degradation_min_window_seconds: float = float(
+        os.getenv("BECERTAIN_ANALYZER_DEGRADATION_MIN_WINDOW_SECONDS", "900")
+    )
+    analyzer_max_metric_anomalies: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_METRIC_ANOMALIES", "180"))
+    analyzer_max_change_points: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CHANGE_POINTS", "140"))
+    analyzer_max_granger_pairs: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_GRANGER_PAIRS", "60"))
+    analyzer_max_clusters: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_CLUSTERS", "20"))
+    analyzer_max_root_causes: int = int(os.getenv("BECERTAIN_ANALYZER_MAX_ROOT_CAUSES", "8"))
+    quality_gating_profile: str = os.getenv("BECERTAIN_QUALITY_GATING_PROFILE", "precision_strict_v1")
+    quality_max_anomaly_density_per_metric_per_hour: float = float(
+        os.getenv("BECERTAIN_QUALITY_MAX_ANOMALY_DENSITY_PER_METRIC_PER_HOUR", "0.75")
+    )
+    quality_max_root_causes_without_multisignal: int = int(
+        os.getenv("BECERTAIN_QUALITY_MAX_ROOT_CAUSES_WITHOUT_MULTISIGNAL", "1")
+    )
+    quality_min_corroboration_signals: int = int(
+        os.getenv("BECERTAIN_QUALITY_MIN_CORROBORATION_SIGNALS", "2")
+    )
+    quality_confidence_calibration_version: str = os.getenv(
+        "BECERTAIN_QUALITY_CONFIDENCE_CALIBRATION_VERSION",
+        "calib_2026_02_25_precision_default",
+    )
 
     # event registry window
     events_window_seconds: float = 300.0
@@ -340,7 +361,7 @@ class Settings(BaseSettings):
     logs_frequency_window_seconds: float = 10.0
 
     # deduplication
-    dedup_time_window: float = 120.0
+    dedup_time_window: float = 90.0
 
     # clustering defaults
     ml_cluster_eps: float = 0.1
@@ -372,21 +393,21 @@ class Settings(BaseSettings):
 
     # anomaly detection thresholds
     anomaly_z_thresholds: List[Tuple[float, float]] = [
-        (4.0, 0.5),
-        (3.0, 0.35),
-        (2.5, 0.2),
+        (4.5, 0.5),
+        (3.5, 0.35),
+        (3.0, 0.2),
     ]
     anomaly_mad_thresholds: List[Tuple[float, float]] = [
-        (5.0, 0.35),
-        (3.5, 0.25),
-        (2.5, 0.15),
+        (6.0, 0.35),
+        (4.5, 0.25),
+        (3.5, 0.15),
     ]
-    anomaly_iso_weight: float = 0.15
+    anomaly_iso_weight: float = 0.10
 
     # anomaly detection defaults beyond thresholds
-    anomaly_default_sensitivity: float = 3.0
-    anomaly_percentile_low: float = 5.0
-    anomaly_percentile_high: float = 95.0
+    anomaly_default_sensitivity: float = 3.5
+    anomaly_percentile_low: float = 2.5
+    anomaly_percentile_high: float = 97.5
 
     # cusum parameters used in changepoint detection
     cusum_k: float = 0.5
@@ -397,16 +418,16 @@ class Settings(BaseSettings):
 
     # additional knobs for anomaly detection
     anomaly_mad_scale: float = 0.6745
-    anomaly_cusum_k: float = 0.5
-    anomaly_drift_slope_threshold: float = 0.1
-    anomaly_contamination_min: float = 0.01
-    anomaly_contamination_max: float = 0.5
-    anomaly_contamination_divisor: float = 0.5
+    anomaly_cusum_k: float = 0.6
+    anomaly_drift_slope_threshold: float = 0.15
+    anomaly_contamination_min: float = 0.005
+    anomaly_contamination_max: float = 0.2
+    anomaly_contamination_divisor: float = 0.35
     anomaly_min_sensitivity: float = 0.1
     anomaly_iso_n_estimators: int = 100
     anomaly_iso_random_state: int = 42
     anomaly_compress_runs: bool = True
-    anomaly_run_gap_multiplier: float = 1.5
+    anomaly_run_gap_multiplier: float = 2.0
     anomaly_run_keep_max: int = 3
 
     # ML ranking configuration

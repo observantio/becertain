@@ -49,6 +49,13 @@ def _acceleration(vals: np.ndarray) -> float:
     return float(second_half - first_half)
 
 
+def _is_counter_like_metric(metric_name: str) -> bool:
+    base = str(metric_name or "").split("{", 1)[0].strip().lower()
+    if not base:
+        return False
+    return base.endswith(("_total", "_count", "_sum", "_bucket"))
+
+
 def analyze(
     metric_name: str,
     ts: List[float],
@@ -59,12 +66,18 @@ def analyze(
         min_degradation_rate = settings.forecast_min_degradation_rate
     if len(vals) < settings.forecast_degradation_min_length:
         return None
+    if _is_counter_like_metric(metric_name):
+        return None
 
     arr = np.array(vals, dtype=float)
     smoothed = _ema(list(arr))
     window = ts[-1] - ts[0]
 
-    overall_slope = float(np.polyfit(np.linspace(0, 1, len(smoothed)), smoothed, 1)[0])
+    t = np.array(ts, dtype=float)
+    t = t - t[0]
+    if t.size < 2 or not np.isfinite(t).all() or float(t[-1]) <= 0:
+        return None
+    overall_slope = float(np.polyfit(t, smoothed, 1)[0])
     volatility = float(np.std(arr) / (np.mean(np.abs(arr)) + 1e-9))
     acceleration = _acceleration(smoothed)
 
