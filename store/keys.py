@@ -14,7 +14,6 @@ import hashlib
 
 
 def _slug(value: str) -> str:
-    # Internal cache keys do not require reversibility; use strong stable hashing.
     return hashlib.sha256(value.encode()).hexdigest()[:32]
 
 

@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 _MAX_EVENTS = 500
 
-
 def _serialise(event) -> str:
     return json.dumps({
         "service": event.service,

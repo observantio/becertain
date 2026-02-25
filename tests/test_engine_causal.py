@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Causal Analysis
+Test engine causal analysis logic, including correlation of anomalies, log bursts, and service latency, as well as edge cases in timestamp handling and relevance filtering.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

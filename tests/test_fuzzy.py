@@ -1,5 +1,5 @@
 """
-Test Suite for Fuzzy Tests
+Test cases for fuzzy testing of various components in the analysis engine, including anomaly detection, Granger causality, forecasting, degradation analysis, correlation, causal graph logic, and topology graph logic. These tests use randomized inputs to validate that the components can handle a wide range of scenarios without errors.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 
@@ -21,7 +21,6 @@ from engine.causal.graph import CausalGraph
 from engine.topology.graph import DependencyGraph
 from engine.enums import Severity
 from api.responses import MetricAnomaly, LogBurst, ServiceLatency
-
 
 
 def random_anomaly(t):

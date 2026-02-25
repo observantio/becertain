@@ -32,7 +32,6 @@ class MimirConnector(MetricsConnector):
 
     @retry(attempts=3, delay=0.5, backoff=2.0, exceptions=(httpx.RequestError, httpx.TimeoutException))
     async def scrape(self) -> str:
-        """Fetch the plain Prometheus metrics exposition text for this tenant."""
         url = f"{self.base_url}/metrics"
         return await fetch_text(
             url,

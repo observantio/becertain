@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Events Registry
+Test cases for the EventRegistry class in the analysis engine, validating registration, retrieval, filtering, and clearing of events, as well as edge cases in timestamp handling.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

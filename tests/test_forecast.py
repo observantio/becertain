@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Forecast
+Test cases for forecast logic in the analysis engine, including linear fitting, R-squared calculation, and trajectory forecasting with various thresholds and edge cases.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

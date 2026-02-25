@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Weights
+Test Engine Weights logic for managing tenant-specific weights for different signal types, including default handling, updates, resets, and sanitization of corrupt stored data.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

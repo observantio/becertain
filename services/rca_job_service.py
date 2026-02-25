@@ -1,3 +1,12 @@
+"""
+RCA job management service that handles scheduling, execution, and lifecycle of root cause analysis jobs.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,14 +22,13 @@ from typing import Any, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
 
-from api.job_models import JobStatus
+from api.responses import JobStatus
 from api.requests import AnalyzeRequest
-from api.routes.common import get_provider
-from api.security import InternalContext
+from services.analyze_service import run_analysis
+from services.security_service import InternalContext
 from config import settings
 from database import get_db_session
 from db_models import RcaJob, RcaReport
-from engine.analyzer import run
 
 
 def _utcnow() -> datetime:
@@ -201,7 +209,7 @@ class RcaJobService:
                 try:
                     req = AnalyzeRequest(**row.request_payload)
                     timeout = float(settings.analyze_timeout_seconds)
-                    result_model = await asyncio.wait_for(run(get_provider(row.tenant_id), req), timeout=timeout)
+                    result_model = await asyncio.wait_for(run_analysis(req), timeout=timeout)
                     result = result_model.model_dump() if hasattr(result_model, "model_dump") else dict(result_model)
                     finished_at = _utcnow()
                     await asyncio.to_thread(self._mark_completed, job_id, finished_at, result)
@@ -270,7 +278,7 @@ class RcaJobService:
     def _mark_cancelled(self, job_id: str, finished_at: datetime, error: str) -> None:
         with get_db_session() as db:
             row = db.get(RcaJob, job_id)
-            if row is None:
+            if row is None or row.status == JobStatus.DELETED.value:
                 return
             row.status = JobStatus.CANCELLED.value
             row.finished_at = finished_at

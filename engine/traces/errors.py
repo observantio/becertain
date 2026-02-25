@@ -55,7 +55,6 @@ def detect_propagation(tempo_response: Dict[str, Any]) -> List[ErrorPropagation]
     if not sources:
         return []
 
-    # Precompute all services with any errors
     all_erroring = {svc for svc, rate in error_rates.items() if rate > 0}
 
     results: List[ErrorPropagation] = []

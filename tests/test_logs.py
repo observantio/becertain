@@ -1,5 +1,5 @@
 """
-Test Suite for Anomaly Detection and Log Analysis
+Test cases for log analysis logic in the analysis engine, including detection of log bursts, correlation with anomalies and latency, and edge cases in timestamp handling and severity assignment.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

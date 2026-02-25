@@ -1,5 +1,5 @@
 """
-API event route tests for deployment registration.
+Test API routes for deployment events, ensuring correct handling of tenant context, request validation, and integration with the event registry.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Fetcher
+Test cases for Fetcher logic in the analysis engine, including data retrieval, caching behavior, and error handling for different signal types.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

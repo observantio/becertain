@@ -10,16 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
-
-"""
-Test Suite for Store Client
-
-Copyright (c) 2026 Stefan Kumarasinghe
-
-Licensed under the Apache License, Version 2.0 (the "License");
-no license file? good to mention the original header
-"""
-
 import pytest
 
 from store import registry as sreg

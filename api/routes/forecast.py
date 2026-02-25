@@ -15,7 +15,7 @@ from fastapi import APIRouter, Query
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
-from api.security import enforce_request_tenant
+from services.security_service import enforce_request_tenant
 from engine import anomaly
 from config import DEFAULT_METRIC_QUERIES, FORECAST_THRESHOLDS
 from engine.fetcher import fetch_metrics

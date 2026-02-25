@@ -77,7 +77,6 @@ def _signals_from_event(event: CorrelatedEvent) -> List[str]:
     signals: list[str] = []
     metric_names = list(dict.fromkeys(a.metric_name for a in event.metric_anomalies if a.metric_name))
     if metric_names:
-        # Keep aggregate token for compatibility with historical ranking/tests.
         signals.append("metrics")
         signals.extend([f"metric:{name}" for name in metric_names[:3]])
     if event.log_bursts:

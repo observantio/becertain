@@ -422,9 +422,14 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     primary_service = req.services[0] if req.services else None
     warnings: list[str] = []
 
-    log_query = req.log_query or (
-        '{service=~"' + "|".join(req.services) + '"}' if req.services else '{job=~".+"}'
-    )
+    requested_log_query = (req.log_query or "").strip()
+    if requested_log_query:
+        log_query = requested_log_query
+    elif req.services:
+        log_query = '{service=~"' + "|".join(req.services) + '"}'
+    else:
+        # Default to all logs when no explicit selector is provided.
+        log_query = "{}"
     trace_filters = {"service.name": primary_service} if primary_service else {}
     all_metric_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 

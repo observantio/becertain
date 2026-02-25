@@ -1,5 +1,5 @@
 """
-Test Suite for Anomaly Detection
+Test cases for anomaly detection logic in the analysis engine, including output limiting and Granger causality series selection.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

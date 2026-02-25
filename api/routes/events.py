@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from engine.events.registry import DeploymentEvent
 from api.routes.exception import handle_exceptions
-from api.security import enforce_request_tenant, get_context_tenant
+from services.security_service import enforce_request_tenant, get_context_tenant
 from engine.registry import get_registry
 from api.requests import DeploymentEventRequest
 

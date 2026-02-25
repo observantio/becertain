@@ -1,8 +1,10 @@
+"""
+Core module implementing `db_models` functionality for the analysis engine.
+"""
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -13,7 +15,6 @@ class Base(DeclarativeBase):
 
 class RcaJob(Base):
     __tablename__ = "rca_jobs"
-
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     report_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -29,7 +30,6 @@ class RcaJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delete_requested_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-
     report = relationship("RcaReport", back_populates="job", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (

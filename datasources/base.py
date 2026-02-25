@@ -29,7 +29,6 @@ class BaseConnector(ABC):
         return f"{self.base_url}{self.health_path}"
 
     def _headers(self) -> Dict[str, str]:
-        """Basic header set applied to every outbound request."""
         return {**self.headers, "X-Scope-OrgID": self.tenant_id}
 
     async def aclose(self) -> None:
@@ -37,6 +36,7 @@ class BaseConnector(ABC):
 
 
 class LogsConnector(BaseConnector):
+
     @abstractmethod
     async def query_range(
         self,
@@ -44,10 +44,12 @@ class LogsConnector(BaseConnector):
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]: ...
+    ) -> Dict[str, Any]:
+        ...
 
 
 class MetricsConnector(BaseConnector):
+
     @abstractmethod
     async def query_range(
         self,
@@ -55,10 +57,12 @@ class MetricsConnector(BaseConnector):
         start: int,
         end: int,
         step: str,
-    ) -> Dict[str, Any]: ...
+    ) -> Dict[str, Any]:
+        ...
 
 
 class TracesConnector(BaseConnector):
+
     @abstractmethod
     async def query_range(
         self,
@@ -66,4 +70,5 @@ class TracesConnector(BaseConnector):
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]: ...
+    ) -> Dict[str, Any]:
+        ...

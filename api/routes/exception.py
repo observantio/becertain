@@ -8,9 +8,6 @@ preserving status codes and detail messages defined locally.  All other
 exceptions are turned into a ``500`` error with the exception message as the
 response detail.
 
-Using a decorator eliminates repetitive try/except boilerplate from each
-route function and ensures a consistent error translation policy across the
-service.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 
@@ -31,15 +28,6 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def handle_exceptions(func: F) -> F:
-    """Decorator that converts uncaught exceptions to HTTP errors.
-
-    * If the wrapped function raises :class:`HTTPException`, it is re-raised
-      verbatim.
-    * Any other exception is caught and transformed into an
-      ``HTTPException(status_code=500, detail=str(exc))``.
-
-    The decorator works with both regular and async functions.
-    """
 
     if inspect.iscoroutinefunction(func):
         @wraps(func)

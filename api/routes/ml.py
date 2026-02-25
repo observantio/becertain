@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from engine.enums import Signal
 from api.routes.exception import handle_exceptions
-from api.security import get_context_tenant
+from services.security_service import get_context_tenant
 from engine.registry import get_registry
 from api.routes.common import safe_call
 

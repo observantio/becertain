@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 
 from api.routes import router
 from api.routes.common import close_providers
-from api.security import InternalAuthMiddleware
+from services.security_service import InternalAuthMiddleware
 from datasources.data_config import DataSourceSettings
 from config import settings
 from database import init_database, init_db, dispose_database
@@ -69,7 +69,6 @@ async def wait_for(
 
 async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None:
     global _backend_ready, _backend_status
-
     scope = {"X-Scope-OrgID": tenant_id}
     checks: list[tuple[str, str, dict, tuple[int, ...]]] = []
 
@@ -80,7 +79,7 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
         TRACES_BACKEND_TEMPO,
     )
 
-    # logs backend
+    # Logs
     if settings.logs_backend == LOGS_BACKEND_LOKI:
         checks.append((
             LOGS_BACKEND_LOKI,
@@ -89,7 +88,7 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
             (200, 404),
         ))
 
-    # metrics backend
+    # Metrics
     if settings.metrics_backend == METRICS_BACKEND_MIMIR:
         checks.append((
             METRICS_BACKEND_MIMIR,
@@ -105,7 +104,7 @@ async def _wait_for_all_bg(settings: DataSourceSettings, tenant_id: str) -> None
             (200,),
         ))
 
-    # traces backend
+    # Traces
     if settings.traces_backend == TRACES_BACKEND_TEMPO:
         checks.append((
             TRACES_BACKEND_TEMPO,

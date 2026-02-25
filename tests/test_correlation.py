@@ -1,5 +1,5 @@
 """
-Test Suite for Correlation Logic
+Test cases for correlation logic in the analysis engine, validating temporal correlation of anomalies, log bursts, and service latency, as well as edge cases in timestamp handling and relevance filtering.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

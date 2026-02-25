@@ -18,7 +18,6 @@ from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTim
 from config import HEALTH_PATH, DATASOURCE_TIMEOUT
 
 class VictoriaMetricsConnector(MetricsConnector):
-    # health_path used by the shared property in BaseConnector
     health_path = HEALTH_PATH
 
     def __init__(

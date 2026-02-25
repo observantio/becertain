@@ -1,5 +1,5 @@
 """
-Test Suite for RCA Hypothesis Generation
+Test RCA hypothesis generation logic in the analysis engine, including creation of hypotheses based on correlated signals, relevance scoring, and edge cases in timestamp handling and signal relationships.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

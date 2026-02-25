@@ -48,8 +48,6 @@ def score_correlated_event(event: CorrelatedEvent) -> float:
     metric_weight = float(configured.get("metrics", configured.get("latency", 0.40)))
     log_weight = float(configured.get("logs", configured.get("log", 0.25)))
     trace_weight = float(configured.get("traces", configured.get("errors", 0.35)))
-
-    # Use smooth count normalization to avoid flat scores across very different event sizes.
     metric_factor = min(1.0, math.log1p(len(event.metric_anomalies)) / math.log1p(200.0))
     log_factor = min(1.0, math.log1p(len(event.log_bursts)) / math.log1p(50.0))
     trace_factor = min(1.0, math.log1p(len(event.service_latency)) / math.log1p(50.0))

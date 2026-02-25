@@ -11,6 +11,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from typing import Any, List, Optional, Tuple
+from datetime import datetime
+from enum import Enum
 import numpy as np
 from pydantic import BaseModel, Field, model_serializer
 from engine.enums import ChangeType, Severity, Signal
@@ -31,12 +33,14 @@ def _coerce(obj: Any) -> Any:
 
 
 class NpModel(BaseModel):
+
     @model_serializer(mode="wrap")
     def _serialize(self, handler: Any) -> Any:
         return _coerce(handler(self))
 
 
 class MetricAnomaly(NpModel):
+
     metric_name: str
     timestamp: float
     value: float
@@ -50,6 +54,7 @@ class MetricAnomaly(NpModel):
 
 
 class LogBurst(NpModel):
+
     window_start: float
     window_end: float
     rate_per_second: float
@@ -59,6 +64,7 @@ class LogBurst(NpModel):
 
 
 class LogPattern(NpModel):
+
     pattern: str
     count: int
     first_seen: float
@@ -70,6 +76,7 @@ class LogPattern(NpModel):
 
 
 class ServiceLatency(NpModel):
+
     service: str
     operation: str
     p50_ms: float
@@ -82,6 +89,7 @@ class ServiceLatency(NpModel):
 
 
 class ErrorPropagation(NpModel):
+
     source_service: str
     affected_services: List[str]
     error_rate: float
@@ -89,6 +97,7 @@ class ErrorPropagation(NpModel):
 
 
 class RootCause(NpModel):
+
     hypothesis: str
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: List[str]
@@ -98,6 +107,7 @@ class RootCause(NpModel):
 
 
 class SloBurnAlert(NpModel):
+
     service: str
     window_label: str
     error_rate: float
@@ -107,6 +117,7 @@ class SloBurnAlert(NpModel):
 
 
 class BudgetStatus(NpModel):
+
     service: str
     target_availability: float
     current_availability: float
@@ -116,6 +127,7 @@ class BudgetStatus(NpModel):
 
 
 class AnalysisReport(NpModel):
+
     tenant_id: str
     start: int
     end: int
@@ -138,3 +150,69 @@ class AnalysisReport(NpModel):
     analysis_warnings: List[str] = []
     overall_severity: Severity
     summary: str
+
+
+# Job-related response models and supporting enum:
+
+class JobStatus(str, Enum):
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    DELETED = "deleted"
+
+
+class AnalyzeJobCreateResponse(BaseModel):
+
+    job_id: str
+    report_id: str
+    status: JobStatus
+    created_at: datetime
+    tenant_id: str
+    requested_by: str
+
+
+class AnalyzeJobSummary(BaseModel):
+
+    job_id: str
+    report_id: str
+    status: JobStatus
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    error: Optional[str] = None
+    summary_preview: Optional[str] = None
+    tenant_id: str
+    requested_by: str
+
+
+class AnalyzeJobListResponse(BaseModel):
+    items: list[AnalyzeJobSummary]
+    next_cursor: Optional[str] = None
+
+
+class AnalyzeJobResultResponse(BaseModel):
+    job_id: str
+    report_id: str
+    status: JobStatus
+    tenant_id: str
+    requested_by: str
+    result: Optional[dict[str, Any]] = None
+
+
+class AnalyzeReportResponse(BaseModel):
+    job_id: str
+    report_id: str
+    status: JobStatus
+    tenant_id: str
+    requested_by: str
+    result: Optional[dict[str, Any]] = None
+
+
+class AnalyzeReportDeleteResponse(BaseModel):
+    report_id: str
+    status: JobStatus = Field(default=JobStatus.DELETED)
+    deleted: bool = True

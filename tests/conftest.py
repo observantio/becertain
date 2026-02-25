@@ -22,15 +22,12 @@ from store.client import _fallback, _redis_client
 
 @pytest.fixture(autouse=True)
 def clear_fallback(monkeypatch):
-    """Wipe the in-memory redis fallback before and after each test and override
-    the redis helpers so they always operate on the in-memory store.
-    """
-    
+
     _fallback.clear()
     global _redis_client
     _redis_client = None
 
-    
+
     import store.client as client
 
     async def fake_get(key: str):
@@ -46,7 +43,7 @@ def clear_fallback(monkeypatch):
     monkeypatch.setattr(client, "redis_set", fake_set)
     monkeypatch.setattr(client, "redis_delete", fake_delete)
 
-    
+
     import store.weights as wstore
     import store.baseline as bstore
     import store.granger as gstore
@@ -60,7 +57,6 @@ def clear_fallback(monkeypatch):
 
     _fallback.clear()
     _redis_client = None
-
 
 
 def pytest_ignore_collect(collection_path, path=None, config=None):

@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+
+"""
+Regression and integration test runner for Be Certain API.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 import asyncio
 import os
 import sys
@@ -140,7 +151,7 @@ CASES: list[Case] = [
          body=base({"service": "payment-service", "target_availability": 0.999})),
     Case("99.5% target", "POST", "/slo/burn", section="SLO",
          body=base({"service": "payment-service", "target_availability": 0.995})),
-    
+
     Case("custom queries", "POST", "/slo/burn", section="SLO",
          body=base({"service": "payment-service", "target_availability": 0.999,
                     "error_query": "sum(rate(traces_spanmetrics_calls_total[5m]))",

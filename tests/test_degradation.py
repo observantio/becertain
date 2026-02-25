@@ -1,5 +1,5 @@
 """
-Test Suite for Degradation Analysis
+Test cases for degradation analysis logic in the analysis engine, including EMA and acceleration calculations, trend classification, and severity assessment.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

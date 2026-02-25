@@ -1,5 +1,5 @@
 """
-Test Suite for Helper Functions
+Test cases for helpers in the analysis engine, including utility functions for time handling, data manipulation, and common calculations used across different components.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

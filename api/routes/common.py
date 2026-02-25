@@ -21,7 +21,7 @@ from fastapi import HTTPException
 
 from datasources.data_config import DataSourceSettings
 from datasources.provider import DataSourceProvider
-from api.security import get_context_tenant
+from services.security_service import get_context_tenant
 
 
 _T = TypeVar("_T")
@@ -38,6 +38,7 @@ def get_provider(tenant_id: str) -> DataSourceProvider:
 
 
 async def close_providers() -> None:
+
     providers = list(_providers.values())
     _providers.clear()
     for provider in providers:
@@ -52,4 +53,5 @@ async def safe_call(coro: Awaitable[_T], status_code: int = 502) -> _T:
 
 
 def to_nanoseconds(ts: int) -> int:
+
     return ts * 1_000_000_000

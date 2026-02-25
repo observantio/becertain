@@ -22,7 +22,7 @@ class DataSourceProvider:
 
     async def query_logs(self, query: str, start: int, end: int, limit: Optional[int] = None) -> Dict[str, Any]:
         return await self.logs.query_range(query=query, start=start, end=end, limit=limit)
-            
+
     async def query_metrics(self, query: str, start: int, end: int, step: str) -> Dict[str, Any]:
         return await self.metrics.query_range(query=query, start=start, end=end, step=step)
 

@@ -16,13 +16,12 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call, to_nanoseconds
 from api.routes.exception import handle_exceptions
-from api.security import enforce_request_tenant
+from services.security_service import enforce_request_tenant
 from engine import logs
 from api.requests import LogRequest
 from api.responses import LogBurst, LogPattern
 
 router = APIRouter(tags=["Logs"])
-
 
 
 @router.post("/anomalies/logs/patterns", response_model=List[LogPattern])

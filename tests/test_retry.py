@@ -1,5 +1,5 @@
 """
-Test Suite for Retry Logic
+Test cases for the retry logic in the analysis engine, including handling of transient errors, backoff strategies, and edge cases in retry conditions.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

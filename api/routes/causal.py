@@ -17,7 +17,7 @@ from fastapi import APIRouter, Query
 from api.requests import AnalyzeRequest, CorrelateRequest
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
-from api.security import enforce_request_tenant
+from services.security_service import enforce_request_tenant
 from config import DEFAULT_METRIC_QUERIES, DEFAULT_SERVICE_NAME
 from engine import anomaly
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
@@ -29,6 +29,7 @@ router = APIRouter(tags=["Causal"])
 
 
 def _select_top_variance_series(series_map: Dict[str, list], max_series: int) -> Dict[str, list]:
+
     ranked: list[tuple[str, float]] = []
     for name, values in series_map.items():
         arr = np.array(values, dtype=float)

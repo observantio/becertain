@@ -1,5 +1,5 @@
 """
-Test Suite for Engine Enums
+Test cases for enums used in the analysis engine, including Severity, Signal, ChangeType, and RcaCategory, validating their properties and relationships.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

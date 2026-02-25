@@ -28,7 +28,6 @@ class SloBurnAlert:
 
 
 def _get_windows() -> List[Tuple[str, float, float, Severity]]:
-    """Return normalized windows from settings with a Severity enum."""
     windows: List[Tuple[str, float, float, Severity]] = []
     for label, window_s, thr, sev in settings.slo_burn_windows:
         try:
@@ -53,15 +52,9 @@ def evaluate(
     ts: List[float],
     target_availability: float = settings.slo_default_target_availability,
 ) -> List[SloBurnAlert]:
-    """Evaluate SLO burn and return at most one alert per evaluation.
-
-    Behavior mirrors previous implementation but adds small guards for
-    mismatched list lengths and robust Severity conversion.
-    """
     if not error_counts or not total_counts or len(ts) < 2:
         return []
 
-    # If counts lists mismatch, trim to the shortest to avoid surprises.
     if len(error_counts) != len(total_counts):
         n = min(len(error_counts), len(total_counts))
         error_counts = error_counts[:n]

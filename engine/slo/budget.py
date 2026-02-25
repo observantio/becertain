@@ -32,10 +32,6 @@ def remaining_minutes(
     total_counts: List[float],
     target_availability: float = 0.999,
 ) -> BudgetStatus:
-    """Compute remaining SLO budget in minutes and return a `BudgetStatus`.
-
-    Keeps previous behavior but adds type hints and consistent rounding.
-    """
     total = sum(total_counts)
     errors = sum(error_counts)
 

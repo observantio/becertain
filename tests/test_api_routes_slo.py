@@ -1,5 +1,5 @@
 """
-Test Suite for API Routes - SLO
+Test API routes for SLO analysis endpoints, validating request handling, response formatting, and integration with the analysis engine.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

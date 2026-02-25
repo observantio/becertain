@@ -15,7 +15,7 @@ from fastapi import APIRouter
 
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
-from api.security import enforce_request_tenant
+from services.security_service import enforce_request_tenant
 from engine import anomaly
 from engine.baseline import compute as baseline_compute
 from engine.changepoint import detect as changepoint_detect, ChangePoint
