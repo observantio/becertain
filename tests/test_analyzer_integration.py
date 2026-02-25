@@ -103,6 +103,13 @@ class EmptyProvider:
         return {"status": "success", "data": {"result": []}}
 
 
+class EmptyTracesWithCountProvider(EmptyProvider):
+    async def query_traces(self, filters, start: int, end: int, limit=None):
+        if limit == 10001:
+            return {"traces": [{"traceID": f"t{i}"} for i in range(10001)]}
+        return {"traces": []}
+
+
 class DummyRegistry:
     async def events_in_window(self, tenant_id: str, start: int, end: int):
         return []
@@ -207,6 +214,17 @@ async def test_analyzer_empty_inputs_returns_safe_report(monkeypatch):
     assert report.root_causes == []
     assert "No anomalies detected" in report.summary
     assert any("returned no entries" in warning or "returned no traces" in warning for warning in report.analysis_warnings)
+
+
+@pytest.mark.asyncio
+async def test_analyzer_trace_id_fallback_reports_10000_plus(monkeypatch):
+    monkeypatch.setattr(analyzer, "DEFAULT_METRIC_QUERIES", ["q_a"])
+    monkeypatch.setattr(analyzer, "get_registry", lambda: DummyRegistry())
+
+    req = AnalyzeRequest(tenant_id="tenant-empty", start=1, end=3600, step="15s", services=["payment-service"])
+    report = await analyzer.run(EmptyTracesWithCountProvider(), req)
+
+    assert any("10000+" in warning for warning in report.analysis_warnings)
 
 
 @pytest.mark.asyncio

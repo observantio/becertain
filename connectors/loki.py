@@ -9,6 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import httpx
+import re
 from typing import Any, Dict, Optional
 
 from datasources.retry import retry
@@ -30,6 +31,15 @@ class LokiConnector(LogsConnector):
     ):
         super().__init__(tenant_id, base_url, timeout, headers)
 
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        q = (query or "").strip()
+        if not q or q == "{}":
+            return '{service=~".+"}'
+        # Loki rejects empty-compatible regex matchers in selectors.
+        q = re.sub(r'=~"\.\*"', '=~".+"', q)
+        return q
+
     @retry(attempts=3, delay=0.5, backoff=2.0, exceptions=(httpx.RequestError, httpx.TimeoutException))
     async def query_range(
         self,
@@ -39,7 +49,7 @@ class LokiConnector(LogsConnector):
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         url = f"{self.base_url}/loki/api/v1/query_range"
-        params: Dict[str, Any] = {"query": query, "start": start, "end": end}
+        params: Dict[str, Any] = {"query": self._normalize_query(query), "start": start, "end": end}
         if limit is not None:
             params["limit"] = limit
         return await fetch_json(

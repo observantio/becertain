@@ -9,6 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import os
+import sys
 from typing import Dict, List, Tuple, Optional
 
 from pydantic_settings import BaseSettings
@@ -431,3 +432,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Keep both import paths bound to one module object during mixed-project test runs.
+sys.modules["config"] = sys.modules[__name__]
+sys.modules["BeCertain.config"] = sys.modules[__name__]

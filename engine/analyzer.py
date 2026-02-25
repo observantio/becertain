@@ -14,6 +14,7 @@ import asyncio
 import dataclasses
 import logging
 import math
+import re
 import time
 from typing import Dict, List, Tuple, cast
 
@@ -40,6 +41,7 @@ from api.responses import AnalysisReport, RootCause as RootCauseModel, SloBurnAl
 from engine.enums import Severity, Signal
 
 log = logging.getLogger(__name__)
+_TRACE_COUNT_FALLBACK_CAP = 10_000
 
 
 def _overall_severity(*groups) -> Severity:
@@ -82,6 +84,18 @@ def _summary(report: AnalysisReport) -> str:
 
     top = f" Top: {report.root_causes[0].hypothesis[:120]}..." if report.root_causes else ""
     return f"[{report.overall_severity.value.upper()}] {' | '.join(parts)}.{top}"
+
+
+def _build_log_query(services: list[str] | None, requested_log_query: str | None) -> str:
+    requested = (requested_log_query or "").strip()
+    if requested:
+        # Loki rejects selectors with empty-compatible regex.
+        return re.sub(r'=~"\.\*"', '=~".+"', requested)
+    if services:
+        escaped = [re.escape(s) for s in services if s]
+        if escaped:
+            return '{service=~"' + "|".join(escaped) + '"}'
+    return '{service=~".+"}'
 
 
 def _to_root_cause_model(rc) -> RootCauseModel:
@@ -422,14 +436,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     primary_service = req.services[0] if req.services else None
     warnings: list[str] = []
 
-    requested_log_query = (req.log_query or "").strip()
-    if requested_log_query:
-        log_query = requested_log_query
-    elif req.services:
-        log_query = '{service=~"' + "|".join(req.services) + '"}'
-    else:
-        # Default to all logs when no explicit selector is provided.
-        log_query = "{}"
+    log_query = _build_log_query(req.services, req.log_query)
     trace_filters = {"service.name": primary_service} if primary_service else {}
     all_metric_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
@@ -528,6 +535,21 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         graph.from_spans(traces_raw)
         if not traces_raw.get("traces"):
             warnings.append("Trace query returned no traces; topology and propagation insights are limited.")
+            try:
+                fallback = await provider.query_traces(
+                    filters=trace_filters,
+                    start=req.start,
+                    end=req.end,
+                    limit=_TRACE_COUNT_FALLBACK_CAP + 1,
+                )
+                trace_ids = fallback.get("traces", []) if isinstance(fallback, dict) else []
+                count = len(trace_ids) if isinstance(trace_ids, list) else 0
+                if count > _TRACE_COUNT_FALLBACK_CAP:
+                    warnings.append("Trace ID fallback count: 10000+ traces in selected window.")
+                elif count > 0:
+                    warnings.append(f"Trace ID fallback count: {count} traces in selected window.")
+            except Exception as exc:
+                warnings.append(f"Trace ID fallback count unavailable: {exc}")
     elif isinstance(traces_raw, Exception):
         msg = f"Traces unavailable: {traces_raw}"
         warnings.append(msg)

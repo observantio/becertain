@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, Dict, List
 
 from fastapi import APIRouter
@@ -26,18 +27,22 @@ from api.requests import CorrelateRequest
 router = APIRouter(tags=["Correlation"])
 
 
+def _build_log_query(services: list[str] | None, requested_log_query: str | None) -> str:
+    requested = (requested_log_query or "").strip()
+    if requested:
+        return re.sub(r'=~"\.\*"', '=~".+"', requested)
+    if services:
+        escaped = [re.escape(s) for s in services if s]
+        if escaped:
+            return '{service=~"' + "|".join(escaped) + '"}'
+    return '{service=~".+"}'
+
+
 @router.post("/correlate", summary="Cross-signal temporal correlation without full RCA")
 @handle_exceptions
 async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
     req = enforce_request_tenant(req)
-    requested_log_query = (req.log_query or "").strip()
-    if requested_log_query:
-        log_query = requested_log_query
-    elif req.services:
-        log_query = '{service=~"' + "|".join(req.services) + '"}'
-    else:
-        # Default to all logs when no explicit selector is provided.
-        log_query = "{}"
+    log_query = _build_log_query(req.services, req.log_query)
     provider = get_provider(req.tenant_id)
     all_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
