@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from engine.slo.burn import evaluate, SloBurnAlert
 from engine.slo.budget import remaining_minutes, BudgetStatus
-from engine.enums import Severity
 
 
 def test_slo_evaluate_empty():

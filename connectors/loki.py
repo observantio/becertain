@@ -17,7 +17,6 @@ from datasources.retry import retry
 from datasources.base import LogsConnector
 from datasources.helpers import fetch_json
 from config import HEALTH_PATH, DATASOURCE_TIMEOUT
-from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
 
 class LokiConnector(LogsConnector):
     health_path = HEALTH_PATH

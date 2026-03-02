@@ -11,7 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List
 
 import numpy as np
 from scipy.stats import linregress

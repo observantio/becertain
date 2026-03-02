@@ -12,7 +12,7 @@ import pytest
 import httpx
 
 from datasources.helpers import fetch_json, fetch_text
-from datasources.exceptions import InvalidQuery, QueryTimeout, DataSourceUnavailable
+from datasources.exceptions import InvalidQuery, QueryTimeout
 
 
 class DummyResponse:

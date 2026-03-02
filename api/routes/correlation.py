@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict
 from fastapi import APIRouter, Depends
-from api.routes.common import get_provider, safe_call
+from api.routes.common import get_provider
 from api.routes.exception import handle_exceptions
 from services.security_service import enforce_request_tenant, require_permission_dependency
 from engine import anomaly, logs

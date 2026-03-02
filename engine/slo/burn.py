@@ -11,7 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple, Any
+from typing import List, Tuple
 
 from engine.enums import Severity
 from config import settings

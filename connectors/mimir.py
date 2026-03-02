@@ -16,7 +16,6 @@ from datasources.retry import retry
 from datasources.base import MetricsConnector
 from datasources.helpers import fetch_json, fetch_text
 from config import HEALTH_PATH, DATASOURCE_TIMEOUT
-from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
 
 class MimirConnector(MetricsConnector):
     health_path = HEALTH_PATH

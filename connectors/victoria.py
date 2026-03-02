@@ -14,7 +14,6 @@ from datasources.retry import retry
 
 from datasources.base import MetricsConnector
 from datasources.helpers import fetch_json
-from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
 from config import HEALTH_PATH, DATASOURCE_TIMEOUT
 
 class VictoriaMetricsConnector(MetricsConnector):

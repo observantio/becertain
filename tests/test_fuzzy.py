@@ -8,7 +8,6 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-import numpy as np
 import pytest
 import random
 
@@ -16,7 +15,7 @@ from engine.causal.granger import granger_pair_analysis, granger_multiple_pairs
 from engine.anomaly.detection import detect
 from engine.forecast.trajectory import forecast
 from engine.forecast.degradation import analyze as degradation
-from engine.correlation.temporal import correlate, CorrelatedEvent
+from engine.correlation.temporal import correlate
 from engine.causal.graph import CausalGraph
 from engine.topology.graph import DependencyGraph
 from engine.enums import Severity

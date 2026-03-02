@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from config import settings
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 
 @dataclass(frozen=True)

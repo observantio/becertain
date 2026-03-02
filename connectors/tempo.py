@@ -16,7 +16,6 @@ from datasources.retry import retry
 from datasources.base import TracesConnector
 from datasources.helpers import fetch_json
 from config import DATASOURCE_TIMEOUT, HEALTH_PATH
-from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
 
 class TempoConnector(TracesConnector):
     health_path = HEALTH_PATH

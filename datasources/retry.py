@@ -36,7 +36,7 @@ def retry(
                 while True:
                     try:
                         return await func(*args, **kwargs)
-                    except exceptions as exc: 
+                    except exceptions: 
                         _attempt += 1
                         if _attempt >= attempts:
                             raise
@@ -53,7 +53,7 @@ def retry(
                 while True:
                     try:
                         return func(*args, **kwargs)
-                    except exceptions as exc: 
+                    except exceptions: 
                         _attempt += 1
                         if _attempt >= attempts:
                             raise

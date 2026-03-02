@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
-import asyncio
 from engine.fetcher import fetch_metrics
 
 
