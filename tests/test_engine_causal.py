@@ -42,4 +42,4 @@ def test_granger_pair_and_all():
     assert res.effect_metric == "e"
     allr = granger_multiple_pairs({"c": cause, "e": effect})
     assert allr
-    assert allr[0].cause_metric == "c"
+    assert any(result.cause_metric == "c" and result.effect_metric == "e" for result in allr)
