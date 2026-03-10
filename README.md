@@ -1,115 +1,248 @@
-# 🧠 Be Certain
+# Be Certain
 
-### The AI-Native Reasoning Engine for Infrastructure Observability.
+Be Certain is the internal analysis engine in the Observantio platform. It takes logs, metrics, and traces from the configured backends, runs anomaly and correlation logic across them, and returns RCA-oriented results that can be consumed synchronously or as background jobs.
 
-**Be Certain** is a high-performance Python analytics engine designed to transform raw telemetry into actionable intelligence. By correlating metrics from **Mimir**, traces from **Tempo**, and logs from **Loki**, it provides deep-tier anomaly detection, predictive forecasting, and automated Root Cause Analysis (RCA).
+This service is not a generic dashboard backend. Its job is to answer questions like: what changed, where did it start, what correlated with it, what is the likely blast radius, and what does the evidence suggest as the most probable root cause.
 
-![Worfklow of Be Certain](assets/beobservant.png)
+![Workflow of Be Certain](assets/beobservant.png)
 
-Built with a modular, "drop-in" architecture, Be Certain allows SRE teams to utilize pre-built analysis modules or extend the engine with custom logic for specific domain needs.
+## What This Service Does
 
----
+- Runs full cross-signal RCA over logs, metrics, and traces.
+- Exposes focused APIs for metrics, logs, traces, correlation, causality, SLOs, forecasting, topology, events, and ML helpers.
+- Supports both immediate analysis and persisted asynchronous job execution.
+- Waits for configured observability backends to become reachable during startup.
+- Optionally persists RCA jobs and reports when `BECERTAIN_DATABASE_URL` is configured.
 
-## 🚀 Key Features
+## Runtime Overview
 
-> **Note:** Be Certain is currently in active development. We are refining our ML models and welcome PRs to help stabilize core heuristics.
+| Detail | Value |
+| --- | --- |
+| Service name | `BeCertain` |
+| Default host | `127.0.0.1` |
+| Default port | `4322` |
+| Main API prefix | `/api/v1` |
+| Health | `/api/v1/health` |
+| Readiness | `/api/v1/ready` |
+| Default logs backend | Loki |
+| Default metrics backend | Mimir |
+| Default traces backend | Tempo |
 
-* 🧠 **Multi-Dimensional Anomaly Detection:** Detect silent failures using advanced time-series pattern recognition.
-* 📈 **Intelligent Forecasting:** Move from reactive to proactive with predictive trajectory models and baseline bands.
-* 🔗 **Causal Correlation:** Understand the *why* by linking disparate events across logs and traces.
-* 📊 **SLO-Centric Monitoring:** Automate error-budget burn rate calculations and availability targets.
-* 🔌 **Plug-and-Play Connectors:** Native support for the LGTM stack (Loki, Grafana, Tempo, Mimir) and VictoriaMetrics.
-* 🧪 **Developer First:** Modular internal packages and a comprehensive `pytest` suite for reliable extensibility.
+Startup behavior:
 
----
+- The service boots the FastAPI app.
+- If `BECERTAIN_DATABASE_URL` is set, it initializes the database and job store.
+- It performs backend readiness checks for the configured logs, metrics, and traces systems.
+- It starts a background cleanup loop for report retention when the database-backed job service is enabled.
 
-## ⚙️ The Analysis Pipeline
+## Security Model
 
-The heart of Be Certain is the `POST /api/v1/analyze` endpoint. It orchestrates a staged pipeline that moves from raw data ingestion to high-level hypothesis ranking.
+Be Certain is designed for internal service-to-service use.
 
-| Stage | Responsibility | Logic |
-| --- | --- | --- |
-| **Orchestration** | `analyzer.py` | The "Conductor." Manages the workflow from fetch to final report. |
-| **Ingestion** | `fetcher.py` | High-concurrency data retrieval with smart fallback mechanisms. |
-| **Detection** | `anomaly/*` | Identifies structural shifts and classifies severity in real-time. |
-| **Context** | `baseline/*` | Computes dynamic Z-score bands to interpret normal vs. abnormal behavior. |
-| **Shifts** | `changepoint/*` | Uses CUSUM logic to detect sudden oscillations or permanent shifts. |
-| **Signals** | `logs/*` & `traces/*` | Extracts log patterns and maps latency degradation across service spans. |
-| **Logic** | `correlation/*` | Temporally aligns anomalies to find "clumps" of evidence. |
-| **Causality** | `causal/*` | Applies Granger-causality and Bayesian posteriors to find the source. |
-| **Hypothesis** | `rca/*` | Ranks likely root causes based on evidence weights and topology. |
-| **Topology** | `topology/*` | Maps the "Blast Radius" and upstream dependencies of a failure. |
+Requests are protected by `InternalAuthMiddleware` and internal permission checks. In practice, the caller must provide:
 
----
+- a valid shared service token via `BECERTAIN_EXPECTED_SERVICE_TOKEN`
+- a valid internal context token signed with the configured context key
+- permissions such as `create:rca`, `read:rca`, or `delete:rca` for the relevant route
 
-## 🛠️ Project Architecture
+Important settings:
 
-Be Certain is structured to be "import-friendly." Whether you are running the full API or just using the `engine` as a library, the structure is clean and predictable.
-
-```text
-.
-├── api/                # FastAPI routes and Pydantic schemas
-├── connectors/         # Client wrappers for Loki, Mimir, Tempo
-├── datasources/        # Abstraction layer for multi-source data fetching
-├── engine/             # The "Brain" - individual analysis modules
-│   ├── anomaly/        # Detection heuristics
-│   ├── causal/         # Bayesian & Granger logic
-│   ├── ml/             # Clustering and scoring weights
-│   └── rca/            # Root cause ranking
-├── store/              # Persistence layer for results and baselines
-└── tests/              # Exhaustive component & integration tests
+```env
+BECERTAIN_EXPECTED_SERVICE_TOKEN=replace-with-a-long-random-shared-secret
+BECERTAIN_CONTEXT_VERIFY_KEY=replace-with-shared-context-key
+BECERTAIN_CONTEXT_ISSUER=beobservant-main
+BECERTAIN_CONTEXT_AUDIENCE=becertain
+BECERTAIN_CONTEXT_ALGORITHMS=HS256
+BECERTAIN_CONTEXT_REPLAY_TTL_SECONDS=180
 ```
 
----
+## API Surface
 
-## 📦 Getting Started
+The service exposes a broader analysis API than the old README described.
 
-### 1. Installation
+Major route groups under `/api/v1`:
 
-Clone the repository into your workspace:
+- `POST /analyze`: synchronous full RCA.
+- `POST /jobs/analyze`: enqueue asynchronous RCA.
+- `GET /jobs`, `GET /jobs/{job_id}`, `GET /jobs/{job_id}/result`: inspect jobs and results.
+- `GET /reports/{report_id}`, `DELETE /reports/{report_id}`: persisted report retrieval and deletion.
+- Health, metrics, logs, traces, correlation, causal, forecast, events, topology, SLO, and ML helper endpoints.
+
+The route tree is assembled from:
+
+- `api/routes/analyze.py`
+- `api/routes/jobs.py`
+- `api/routes/metrics.py`
+- `api/routes/logs.py`
+- `api/routes/traces.py`
+- `api/routes/correlation.py`
+- `api/routes/causal.py`
+- `api/routes/forecast.py`
+- `api/routes/events.py`
+- `api/routes/topology.py`
+- `api/routes/slo.py`
+- `api/routes/ml.py`
+
+## Analysis Model
+
+Be Certain combines several layers of reasoning rather than relying on a single detector.
+
+| Layer | Purpose |
+| --- | --- |
+| Fetch and datasource routing | Collects signals from Loki, Mimir, Tempo, or VictoriaMetrics |
+| Anomaly detection | Flags unusual changes in time series and derived signals |
+| Baselines and changepoints | Separates structural change from normal variation |
+| Correlation | Aligns multi-signal evidence over time |
+| Causal analysis | Ranks candidate sources using causal and heuristic logic |
+| RCA synthesis | Produces an operator-readable report or job result |
+| Forecasting and SLO logic | Adds risk and burn-rate context to the analysis |
+
+This is why the service is useful both for on-demand RCA and for background analysis jobs tied to incidents or operational workflows.
+
+## Backends and Connectors
+
+Supported defaults in the current configuration:
+
+- Logs: Loki
+- Metrics: Mimir or VictoriaMetrics
+- Traces: Tempo
+
+Default URLs:
+
+```env
+BECERTAIN_LOGS_LOKI_URL=http://loki:3100
+BECERTAIN_METRICS_MIMIR_URL=http://mimir:9009
+BECERTAIN_TRACES_TEMPO_URL=http://tempo:3200
+```
+
+These are probed during startup. If a backend does not become ready within `BECERTAIN_STARTUP_TIMEOUT`, readiness stays degraded and the service logs which backend failed.
+
+## Environment Variables
+
+The complete configuration surface is in `config.py`. The following variables are the most important for developers and operators.
+
+### Core Runtime
+
+```env
+BECERTAIN_HOST=127.0.0.1
+BECERTAIN_PORT=4322
+BECERTAIN_CONNECTOR_TIMEOUT=10
+BECERTAIN_STARTUP_TIMEOUT=120
+```
+
+### Backend Selection
+
+```env
+BECERTAIN_LOGS_BACKEND=loki
+BECERTAIN_METRICS_BACKEND=mimir
+BECERTAIN_TRACES_BACKEND=tempo
+```
+
+### Backend URLs
+
+```env
+BECERTAIN_LOGS_LOKI_URL=http://loki:3100
+BECERTAIN_METRICS_MIMIR_URL=http://mimir:9009
+BECERTAIN_METRICS_VICTORIAMETRICS_URL=
+BECERTAIN_TRACES_TEMPO_URL=http://tempo:3200
+```
+
+### Job and Database Settings
+
+```env
+BECERTAIN_DATABASE_URL=postgresql://user:strongPassword@db:5432/observantio
+BECERTAIN_ANALYZE_MAX_CONCURRENCY=2
+BECERTAIN_ANALYZE_TIMEOUT_SECONDS=90
+BECERTAIN_ANALYZE_REPORT_RETENTION_DAYS=7
+BECERTAIN_ANALYZE_JOB_TTL_DAYS=30
+```
+
+### Security Settings
+
+```env
+BECERTAIN_EXPECTED_SERVICE_TOKEN=replace-with-a-long-random-shared-secret
+BECERTAIN_CONTEXT_VERIFY_KEY=replace-with-shared-context-key
+BECERTAIN_CONTEXT_ISSUER=beobservant-main
+BECERTAIN_CONTEXT_AUDIENCE=becertain
+BECERTAIN_CONTEXT_ALGORITHMS=HS256
+```
+
+### Optional TLS
+
+```env
+BECERTAIN_SSL_ENABLED=false
+BECERTAIN_SSL_CERTFILE=
+BECERTAIN_SSL_KEYFILE=
+```
+
+## Local Development
+
+### 1. Install dependencies
 
 ```bash
-git clone https://github.com/observantio/becertain.git BeCertain
-cd BeCertain
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 2. Run with Docker
+### 2. Configure environment
 
-The easiest way to get started is using the provided Dockerfile:
+At minimum, set backend URLs and internal auth secrets. If you want async job persistence, set `BECERTAIN_DATABASE_URL` as well.
+
+### 3. Run the service
+
+```bash
+python main.py
+```
+
+Or with uvicorn:
+
+```bash
+uvicorn main:app --host 127.0.0.1 --port 4322 --reload
+```
+
+### 4. Run tests
+
+```bash
+pytest -q
+```
+
+## Docker
+
+Build and run locally:
 
 ```bash
 docker build -t becertain:latest .
-docker run --rm -it -p 8000:8000 --name becertain becertain:latest
+docker run --rm -it \
+	-p 4322:4322 \
+	--env-file .env \
+	--name becertain \
+	becertain:latest
 ```
 
-### 3. Local Development
+For multi-service development, prefer the root mono-repo `docker-compose.yml` and shared environment configuration.
 
-For local testing or debugging individual modules:
+## Developer Notes
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python run.py
-```
+- `main.py` owns startup, backend readiness, and optional DB-backed job recovery.
+- `api/routes/analyze.py` is the synchronous RCA entry point.
+- `api/routes/jobs.py` exposes the async job lifecycle and persisted report APIs.
+- `datasources/` abstracts the configured backends.
+- `engine/` contains the detection, correlation, causal, RCA, and topology logic.
+- `store/` contains caching and persistence helpers used by the analysis engine.
 
----
+## Troubleshooting
 
-## 🤝 Contributing
+Common issues:
 
-We love contributors! Whether it's a new causal algorithm or a bug fix in the OTel fetcher, your help is appreciated.
+- `/api/v1/ready` returns `503`: one or more configured backends did not pass readiness checks.
+- job APIs fail unexpectedly: `BECERTAIN_DATABASE_URL` is missing or database initialization failed.
+- internal auth fails: the service token or context key does not match the caller configuration.
+- analysis quality looks weak: verify that the selected backend URLs and tenant headers are aligned with your data source layout.
 
-**Developer Checklist:**
+## License
 
-1. Create a feature branch.
-2. Ensure all tests pass: `pytest -q`.
-3. Ensure your `pre-commit` hooks are active.
+Licensed under the Apache License 2.0.
 
----
-
-## 📄 License
-
-Licensed under the **Apache License 2.0**. You are free to use, modify, and distribute this software, provided that all original attribution notices are preserved.
-
-*Disclaimer: This software is provided "as is" without warranty. The maintainers are not affiliated with third-party service providers mentioned in the connectors.*
+Preserve the existing attribution and notice headers in redistributed copies.
 
