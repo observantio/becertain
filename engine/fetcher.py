@@ -13,11 +13,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import httpx
 
 from datasources.provider import DataSourceProvider
+from custom_types.json import JSONDict
 from config import settings
 
 log = logging.getLogger(__name__)
@@ -34,8 +35,9 @@ async def _scrape_and_fill(
     queries: List[str],
     start: int,
     end: int,
-) -> List[Tuple[str, Dict[str, Any]]]:
-    scrape_func = getattr(provider.metrics, "scrape", None)
+) -> List[Tuple[str, JSONDict]]:
+    metrics_backend = getattr(provider, "metrics", None)
+    scrape_func = getattr(metrics_backend, "scrape", None)
     if not callable(scrape_func):
         return []
 
@@ -63,7 +65,7 @@ async def _scrape_and_fill(
         log.debug("scrape_and_fill: scrape returned no parseable metrics")
         return []
 
-    results: List[Tuple[str, Dict[str, Any]]] = []
+    results: List[Tuple[str, JSONDict]] = []
     for q in queries:
         candidates = {n for n in _extract_metric_names(q) if n in metrics}
         for name in candidates:
@@ -88,17 +90,17 @@ async def fetch_metrics(
     start: int,
     end: int,
     step: str,
-) -> List[Tuple[str, Dict[str, Any]]]:
+) -> List[Tuple[str, JSONDict]]:
     max_parallel = max(1, int(settings.analyzer_max_parallel_metric_queries))
     sem = asyncio.Semaphore(max_parallel)
 
-    async def _query(q: str) -> Dict[str, Any]:
+    async def _query(q: str) -> JSONDict:
         async with sem:
             return await provider.query_metrics(query=q, start=start, end=end, step=step)
 
     raw = await asyncio.gather(*[_query(q) for q in queries], return_exceptions=True)
 
-    pairs: List[Tuple[str, Dict[str, Any]]] = []
+    pairs: List[Tuple[str, JSONDict]] = []
     any_results = False
 
     for q, r in zip(queries, raw):
@@ -108,7 +110,9 @@ async def fetch_metrics(
         if not isinstance(r, dict):
             log.warning("fetch_metrics query=%s returned non-dict response: %s", q, type(r).__name__)
             continue
-        cnt = len(r.get("data", {}).get("result", []))
+        data = r.get("data")
+        results = data.get("result") if isinstance(data, dict) else []
+        cnt = len(results) if isinstance(results, list) else 0
         log.debug("fetch_metrics query=%s series=%d", q, cnt)
         pairs.append((q, r))
         if cnt > 0:

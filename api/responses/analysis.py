@@ -10,11 +10,19 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import Field
 
+from engine.causal.bayesian import BayesianScore
+from engine.causal.granger import GrangerResult
+from engine.changepoint.cusum import ChangePoint
+from engine.correlation.signals import LogMetricLink
 from engine.enums import Severity
+from engine.forecast.degradation import DegradationSignal
+from engine.forecast.trajectory import TrajectoryForecast
+from engine.ml.clustering import AnomalyCluster
+from engine.ml.ranking import RankedCause
 
 from .base import NpModel
 from .anomalies import MetricAnomaly
@@ -43,14 +51,14 @@ class AnalysisReport(NpModel):
     error_propagation: List[ErrorPropagation]
     slo_alerts: List[SloBurnAlert] = []
     root_causes: List[RootCause]
-    ranked_causes: List[Any] = []
-    change_points: List[Any] = []
-    log_metric_links: List[Any] = []
-    forecasts: List[Any] = []
-    degradation_signals: List[Any] = []
-    anomaly_clusters: List[Any] = []
-    granger_results: List[Any] = []
-    bayesian_scores: List[Any] = []
+    ranked_causes: List[RankedCause] = []
+    change_points: List[ChangePoint] = []
+    log_metric_links: List[LogMetricLink] = []
+    forecasts: List[TrajectoryForecast] = []
+    degradation_signals: List[DegradationSignal] = []
+    anomaly_clusters: List[AnomalyCluster] = []
+    granger_results: List[GrangerResult] = []
+    bayesian_scores: List[BayesianScore] = []
     analysis_warnings: List[str] = []
     overall_severity: Severity
     summary: str

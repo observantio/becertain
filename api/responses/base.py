@@ -10,13 +10,15 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, SerializerFunctionWrapHandler, model_serializer
+
+SerializableValue: TypeAlias = object
 
 
-def _coerce(obj: Any) -> Any:
+def _coerce(obj: SerializableValue) -> SerializableValue:
     if isinstance(obj, dict):
         return {k: _coerce(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -32,5 +34,5 @@ def _coerce(obj: Any) -> Any:
 
 class NpModel(BaseModel):
     @model_serializer(mode="wrap")
-    def _serialize(self, handler: Any) -> Any:
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> SerializableValue:
         return _coerce(handler(self))

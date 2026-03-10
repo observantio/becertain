@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import httpx
 
@@ -7,6 +7,7 @@ from config import DATASOURCE_TIMEOUT, HEALTH_PATH
 from connectors.common import query_backend_json
 from datasources.base import LogsConnector
 from datasources.retry import retry
+from datasources.types import JSONDict
 
 
 class LokiConnector(LogsConnector):
@@ -17,8 +18,8 @@ class LokiConnector(LogsConnector):
         base_url: str,
         tenant_id: str,
         timeout: int = DATASOURCE_TIMEOUT,
-        headers: Optional[Dict[str, str]] = None,
-    ):
+        headers: Optional[dict[str, str]] = None,
+    ) -> None:
         super().__init__(tenant_id, base_url, timeout, headers)
 
     @staticmethod
@@ -37,8 +38,12 @@ class LokiConnector(LogsConnector):
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        params: Dict[str, Any] = {"query": self._normalize_query(query), "start": start, "end": end}
+    ) -> JSONDict:
+        params: dict[str, str | int | float | bool] = {
+            "query": self._normalize_query(query),
+            "start": start,
+            "end": end,
+        }
         if limit is not None:
             params["limit"] = limit
         return await query_backend_json(

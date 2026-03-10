@@ -9,13 +9,13 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict
 from fastapi import APIRouter, Depends
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
 from services.security_service import enforce_request_tenant, require_permission_dependency
 from engine.topology import DependencyGraph
 from api.requests import TopologyRequest
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["Topology"])
 
@@ -26,7 +26,7 @@ router = APIRouter(tags=["Topology"])
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def blast_radius(req: TopologyRequest) -> Dict[str, Any]:
+async def blast_radius(req: TopologyRequest) -> JSONDict:
     req = enforce_request_tenant(req)
     raw = await safe_call(
         get_provider(req.tenant_id).query_traces(

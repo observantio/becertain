@@ -26,7 +26,7 @@ from db_models import Base
 
 logger = logging.getLogger(__name__)
 _engine: Optional[Engine] = None
-_session_factory: Optional[sessionmaker] = None
+_session_factory: Optional[sessionmaker[Session]] = None
 
 
 def _ensure_postgres_database_exists(database_url: str) -> None:

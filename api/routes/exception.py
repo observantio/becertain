@@ -20,19 +20,21 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import Any, Callable, TypeVar, cast
+from typing import Awaitable, Callable, TypeVar, cast
 from fastapi import HTTPException
 
-F = TypeVar("F", bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., object])
 
 
 def handle_exceptions(func: F) -> F:
 
     if inspect.iscoroutinefunction(func):
+        async_func = cast(Callable[..., Awaitable[object]], func)
+
         @wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def async_wrapper(*args: object, **kwargs: object) -> object:
             try:
-                return await func(*args, **kwargs)
+                return await async_func(*args, **kwargs)
             except HTTPException:
                 raise
             except Exception as exc:
@@ -40,10 +42,12 @@ def handle_exceptions(func: F) -> F:
 
         return cast(F, async_wrapper)
 
+    sync_func = cast(Callable[..., object], func)
+
     @wraps(func)
-    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+    def sync_wrapper(*args: object, **kwargs: object) -> object:
         try:
-            return func(*args, **kwargs)
+            return sync_func(*args, **kwargs)
         except HTTPException:
             raise
         except Exception as exc:

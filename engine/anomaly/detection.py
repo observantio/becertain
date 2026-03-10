@@ -10,16 +10,35 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+from importlib import import_module
 import math
-from typing import List
+from typing import Callable, List, Protocol
 
 import numpy as np
-from scipy.stats import linregress
-from sklearn.ensemble import IsolationForest
 
 from engine.enums import ChangeType, Severity
 from api.responses import MetricAnomaly
 from config import settings
+
+linregress: Callable[[np.ndarray, np.ndarray], tuple[float, float, float, float, float]] = import_module("scipy.stats").linregress
+
+
+class IsolationForestModel(Protocol):
+    def fit_predict(self, data: np.ndarray) -> np.ndarray: ...
+    def score_samples(self, data: np.ndarray) -> np.ndarray: ...
+
+
+class IsolationForestFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        contamination: float,
+        random_state: int,
+        n_estimators: int,
+    ) -> IsolationForestModel: ...
+
+
+IsolationForest: IsolationForestFactory = import_module("sklearn.ensemble").IsolationForest
 
 
 def _mad_scores(arr: np.ndarray) -> np.ndarray:
@@ -27,7 +46,7 @@ def _mad_scores(arr: np.ndarray) -> np.ndarray:
     mad = np.median(np.abs(arr - median))
     if mad == 0:
         return np.zeros_like(arr)
-    return settings.anomaly_mad_scale * (arr - median) / mad
+    return np.asarray(settings.anomaly_mad_scale * (arr - median) / mad, dtype=float)
 
 
 def _cusum_changepoints(arr: np.ndarray, threshold: float | None = None) -> np.ndarray:

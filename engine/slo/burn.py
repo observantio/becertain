@@ -20,19 +20,20 @@ from config import settings
 def _get_windows() -> List[Tuple[str, float, float, Severity]]:
     windows: List[Tuple[str, float, float, Severity]] = []
     for label, window_s, thr, sev in settings.slo_burn_windows:
-        try:
-            sev_enum = sev if isinstance(sev, Severity) else Severity(sev)
-        except ValueError:
-            if isinstance(sev, str):
-                try:
-                    sev_enum = Severity[sev]
-                except KeyError:
-                    sev_enum = Severity.low
-            else:
-                sev_enum = Severity.low
+        sev_enum = Severity.low
+        if isinstance(sev, Severity):
+            sev_enum = sev
+        elif isinstance(sev, str):
+            try:
+                sev_enum = Severity(sev)
+            except ValueError:
+                sev_enum = Severity.__members__.get(sev, Severity.low)
 
         windows.append((label, float(window_s), float(thr), sev_enum))
     return windows
+
+
+__all__ = ["SloBurnAlert", "evaluate"]
 
 
 def evaluate(

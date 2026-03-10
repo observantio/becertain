@@ -11,18 +11,30 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import List, TypedDict
 
 import numpy as np
 
 from engine.enums import Severity
 from api.responses import ServiceLatency
+from custom_types.json import JSONDict
 from config import settings
 
 
-def _to_seconds(value: Any) -> float | None:
+class LatencyBucket(TypedDict):
+    durations: list[float]
+    errors: int
+    total: int
+    op: str
+    window_start: float | None
+    window_end: float | None
+
+
+def _to_seconds(value: object) -> float | None:
     try:
         if value is None:
+            return None
+        if not isinstance(value, (int, float, str)):
             return None
         numeric = float(value)
     except (TypeError, ValueError):
@@ -39,7 +51,7 @@ def _to_seconds(value: Any) -> float | None:
     return numeric
 
 
-def _trace_window_seconds(trace: Dict[str, Any], duration_ms: float) -> tuple[float | None, float | None]:
+def _trace_window_seconds(trace: JSONDict, duration_ms: float) -> tuple[float | None, float | None]:
     start = None
     for key in (
         "startTimeUnixNano",
@@ -74,7 +86,8 @@ def _apdex(durations_ms: np.ndarray, t_ms: float) -> float:
         return 1.0
     satisfied = (durations_ms <= t_ms).sum()
     tolerating = ((durations_ms > t_ms) & (durations_ms <= 4 * t_ms)).sum()
-    return round((satisfied + 0.5 * tolerating) / durations_ms.size, 4)
+    score = (float(satisfied) + 0.5 * float(tolerating)) / float(durations_ms.size)
+    return round(score, 4)
 
 def _severity(p99: float, error_rate: float, apdex: float) -> Severity:
     score = 0.0
@@ -100,11 +113,11 @@ def _severity(p99: float, error_rate: float, apdex: float) -> Severity:
     return Severity.from_score(min(score, 1.0))
 
 
-def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> List[ServiceLatency]:
+def analyze(tempo_response: JSONDict, apdex_t_ms: float | None = None) -> List[ServiceLatency]:
     if apdex_t_ms is None:
         apdex_t_ms = settings.trace_latency_apdex_t_ms
 
-    buckets: Dict[str, Dict[str, Any]] = defaultdict(
+    buckets: dict[str, LatencyBucket] = defaultdict(
         lambda: {
             "durations": [],
             "errors": 0,
@@ -115,10 +128,19 @@ def analyze(tempo_response: Dict[str, Any], apdex_t_ms: float | None = None) -> 
         }
     )
 
-    for trace in tempo_response.get("traces", []):
-        service = trace.get("rootServiceName", "unknown")
-        operation = trace.get("rootTraceName", "unknown")
-        duration_ms = float(trace.get("durationMs", 0))
+    traces = tempo_response.get("traces")
+    if not isinstance(traces, list):
+        return []
+
+    for trace in traces:
+        if not isinstance(trace, dict):
+            continue
+        service_value = trace.get("rootServiceName")
+        operation_value = trace.get("rootTraceName")
+        duration_value = _to_seconds(trace.get("durationMs"))
+        service = service_value if isinstance(service_value, str) else "unknown"
+        operation = operation_value if isinstance(operation_value, str) else "unknown"
+        duration_ms = duration_value if duration_value is not None else 0.0
         key = f"{service}::{operation}"
 
         bucket = buckets[key]

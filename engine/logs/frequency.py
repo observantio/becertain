@@ -8,10 +8,13 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
+# pylint: disable=duplicate-code
+
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterator, List, Tuple
+from collections.abc import Mapping
+from typing import Iterator, List, Tuple
 
 import numpy as np
 
@@ -34,9 +37,23 @@ _BENIGN_RE = re.compile(
 )
 
 
-def _iter_entries(loki_response: Dict[str, Any]) -> Iterator[Tuple[float, str]]:
-    for stream in loki_response.get("data", {}).get("result", []):
-        for ts_ns, line in stream.get("values", []):
+def _iter_entries(loki_response: Mapping[str, object]) -> Iterator[Tuple[float, str]]:
+    data = loki_response.get("data")
+    if not isinstance(data, dict):
+        return
+    streams = data.get("result")
+    if not isinstance(streams, list):
+        return
+    for stream in streams:
+        if not isinstance(stream, dict):
+            continue
+        values = stream.get("values")
+        if not isinstance(values, list):
+            continue
+        for entry in values:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            ts_ns, line = entry[0], entry[1]
             yield float(ts_ns) / 1e9, line
 
 
@@ -50,7 +67,7 @@ def _is_benign_repetitive_window(lines: List[str]) -> bool:
     return (benign / len(lines)) >= 0.6
 
 
-def detect_bursts(loki_response: Dict[str, Any], window_seconds: float | None = None) -> List[LogBurst]:
+def detect_bursts(loki_response: Mapping[str, object], window_seconds: float | None = None) -> List[LogBurst]:
     if window_seconds is None:
         window_seconds = settings.logs_frequency_window_seconds
     entries = sorted(_iter_entries(loki_response), key=lambda x: x[0])
@@ -65,7 +82,7 @@ def detect_bursts(loki_response: Dict[str, Any], window_seconds: float | None = 
 
     baseline_rate = len(timestamps) / total_duration
 
-    windows: List[Tuple[float, float, int]] = []
+    windows: List[Tuple[float, float, int, bool]] = []
     i = 0
     while i < len(timestamps):
         w_start = timestamps[i]

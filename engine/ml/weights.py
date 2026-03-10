@@ -12,6 +12,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Dict, Union
 
 from engine.enums import Signal
@@ -29,8 +30,16 @@ def _key(signal: Union[Signal, str]) -> str:
     return signal.value if isinstance(signal, Signal) else signal
 
 
-def _normalise_weights(raw: dict) -> Dict[str, float]:
-    return {_key(k): float(v) for k, v in raw.items()}
+def _coerce_weight(value: object) -> float:
+    if isinstance(value, bool):
+        raise TypeError("bool is not a valid weight")
+    if isinstance(value, (int, float, str)):
+        return float(value)
+    raise TypeError(f"Unsupported weight value: {type(value).__name__}")
+
+
+def _normalise_weights(raw: Mapping[Signal | str, object]) -> Dict[str, float]:
+    return {_key(k): _coerce_weight(v) for k, v in raw.items()}
 
 
 @dataclass
@@ -72,7 +81,7 @@ class SignalWeights:
         self.weights = _normalise_weights(DEFAULT_WEIGHTS)
         self.update_count = 0
 
-    def load(self, raw: dict) -> None:
+    def load(self, raw: Mapping[Signal | str, object]) -> None:
         self.weights = _normalise_weights(raw)
 
 

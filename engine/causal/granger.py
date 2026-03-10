@@ -11,11 +11,14 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from config import settings
+
+_scipy_stats = import_module("scipy.stats")
 
 
 @dataclass(frozen=True)
@@ -84,8 +87,7 @@ def granger_pair_analysis(
     f_stat = ((ss_restricted - ss_unrestricted) / k) / (ss_unrestricted / denom_df)
     f_stat = float(f_stat)
 
-    from scipy import stats
-    p_value = float(1.0 - stats.f.cdf(f_stat, k, denom_df))
+    p_value = float(1.0 - _scipy_stats.f.cdf(f_stat, k, denom_df))
 
     is_causal = p_value < p_threshold and f_stat > 1.0
     strength = round(

@@ -210,12 +210,19 @@ def generate(
         window_seconds = float(settings.rca_deploy_window_seconds)
         window_start = float(event.window_start) - window_seconds
         window_end = float(event.window_start) + window_seconds
+
+        def _deployment_distance(
+            deployment: DeploymentEvent,
+            reference_time: float = event_window_start,
+        ) -> float:
+            return abs(deployment.timestamp - reference_time)
+
         if event_registry:
             nearby_deploys = event_registry.in_window(window_start, window_end)
         else:
             nearby_deploys = [d for d in deployments if window_start <= d.timestamp <= window_end]
         if nearby_deploys:
-            deploy_event = min(nearby_deploys, key=lambda d, anchor=event_window_start: abs(d.timestamp - anchor))
+            deploy_event = min(nearby_deploys, key=_deployment_distance)
 
         affected: List[str] = []
         root_svc = ""
@@ -229,7 +236,7 @@ def generate(
                     if window_start <= d.timestamp <= window_end
                 ]
                 if service_deploys:
-                    deploy_event = min(service_deploys, key=lambda d, anchor=event_window_start: abs(d.timestamp - anchor))
+                    deploy_event = min(service_deploys, key=_deployment_distance)
 
         metric_names = sorted({a.metric_name for a in event.metric_anomalies})[:2]
         svc_names = sorted({s.service for s in event.service_latency})[:2]

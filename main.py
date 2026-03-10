@@ -26,8 +26,7 @@ from fastapi.responses import JSONResponse
 from api.routes import router
 from api.routes.common import close_providers
 from services.security_service import InternalAuthMiddleware
-from datasources.data_config import DataSourceSettings
-from config import settings
+from config import Settings, settings
 from database import init_database, init_db, dispose_database
 from datasources.exceptions import BackendStartupTimeout
 from services.rca_job_service import rca_job_service
@@ -48,7 +47,7 @@ async def wait_for(
     url: str,
     timeout: float,
     headers: Optional[Dict[str, str]] = None,
-    accept_status: tuple = (200, 204, 404),
+    accept_status: tuple[int, ...] = (200, 204, 404),
 ) -> None:
     deadline = time.monotonic() + timeout
     attempt = 0
@@ -67,10 +66,10 @@ async def wait_for(
     raise BackendStartupTimeout(f"{name} did not become ready within {timeout}s")
 
 
-async def _wait_for_all_bg(data_settings: DataSourceSettings, tenant_id: str) -> None:
+async def _wait_for_all_bg(data_settings: Settings, tenant_id: str) -> None:
     global _backend_ready, _backend_status
     scope = {"X-Scope-OrgID": tenant_id}
-    checks: list[tuple[str, str, dict, tuple[int, ...]]] = []
+    checks: list[tuple[str, str, dict[str, str], tuple[int, ...]]] = []
 
     from config import (
         LOGS_BACKEND_LOKI,
@@ -192,17 +191,21 @@ async def ready() -> JSONResponse:
 
 
 if __name__ == "__main__":
-    uvicorn_kwargs = {
-        "host": settings.host,
-        "port": settings.port,
-        "log_level": "info",
-        "access_log": True,
-    }
     if settings.ssl_enabled:
-        uvicorn_kwargs["ssl_certfile"] = settings.ssl_certfile
-        uvicorn_kwargs["ssl_keyfile"] = settings.ssl_keyfile
-
-    uvicorn.run(
-        "main:app",
-        **uvicorn_kwargs,
-    )
+        uvicorn.run(
+            "main:app",
+            host=settings.host,
+            port=settings.port,
+            log_level="info",
+            access_log=True,
+            ssl_certfile=settings.ssl_certfile,
+            ssl_keyfile=settings.ssl_keyfile,
+        )
+    else:
+        uvicorn.run(
+            "main:app",
+            host=settings.host,
+            port=settings.port,
+            log_level="info",
+            access_log=True,
+        )

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from custom_types.json import JSONDict
 
 
 class JobStatus(str, Enum):
@@ -60,7 +62,7 @@ class AnalyzeJobResultResponse(BaseModel):
     status: JobStatus
     tenant_id: str
     requested_by: str
-    result: Optional[dict[str, Any]] = None
+    result: Optional[JSONDict] = None
 
 
 class AnalyzeReportResponse(BaseModel):
@@ -69,7 +71,7 @@ class AnalyzeReportResponse(BaseModel):
     status: JobStatus
     tenant_id: str
     requested_by: str
-    result: Optional[dict[str, Any]] = None
+    result: Optional[JSONDict] = None
 
 
 class AnalyzeReportDeleteResponse(BaseModel):

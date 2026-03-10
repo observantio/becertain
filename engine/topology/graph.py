@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from config import settings
 from dataclasses import dataclass
-from typing import Any, Dict, List, Set
+from typing import Dict, List, Set
 
 
 @dataclass(frozen=True)
@@ -35,16 +35,28 @@ class DependencyGraph:
         self._forward[caller].add(callee)
         self._reverse[callee].add(caller)
 
-    def from_spans(self, raw: Any) -> None:
+    def from_spans(self, raw: object) -> None:
         traces = raw.get("traces", []) if isinstance(raw, dict) else raw
         if not isinstance(traces, list):
             return
 
-        def _attr_value(attributes: list[dict], key: str) -> str:
+        def _attributes(raw_attributes: object) -> list[dict[str, object]]:
+            if not isinstance(raw_attributes, list):
+                return []
+            return [item for item in raw_attributes if isinstance(item, dict)]
+
+        def _spans(raw_spans: object) -> list[dict[str, object]]:
+            if not isinstance(raw_spans, list):
+                return []
+            return [item for item in raw_spans if isinstance(item, dict)]
+
+        def _attr_value(attributes: list[dict[str, object]], key: str) -> str:
             for attr in attributes:
                 if attr.get("key") != key:
                     continue
                 value = attr.get("value") or {}
+                if not isinstance(value, dict):
+                    continue
                 text = (value.get("stringValue") or value.get("value") or "").strip()
                 if text:
                     return text
@@ -54,7 +66,7 @@ class DependencyGraph:
             if not isinstance(trace, dict):
                 continue
             root = trace.get("rootServiceName")
-            span_sets: list[dict] = []
+            span_sets: list[dict[str, object]] = []
             raw_sets = trace.get("spanSets")
             if isinstance(raw_sets, list):
                 span_sets.extend(s for s in raw_sets if isinstance(s, dict))
@@ -64,15 +76,14 @@ class DependencyGraph:
                 span_sets.append(single_set)
 
             for span_set in span_sets:
-                svc = _attr_value(span_set.get("attributes") or [], "service.name")
-                peer = _attr_value(span_set.get("attributes") or [], "peer.service") or _attr_value(
-                    span_set.get("attributes") or [],
+                span_attributes = _attributes(span_set.get("attributes"))
+                svc = _attr_value(span_attributes, "service.name")
+                peer = _attr_value(span_attributes, "peer.service") or _attr_value(
+                    span_attributes,
                     "db.name",
                 )
-                for span in span_set.get("spans") or []:
-                    if not isinstance(span, dict):
-                        continue
-                    attrs = span.get("attributes") or []
+                for span in _spans(span_set.get("spans")):
+                    attrs = _attributes(span.get("attributes"))
                     if not svc:
                         svc = _attr_value(attrs, "service.name")
                     if not peer:

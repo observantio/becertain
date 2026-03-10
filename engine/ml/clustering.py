@@ -11,12 +11,23 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 from typing import List
 
 import numpy as np
 
 from api.responses import MetricAnomaly
 from config import settings
+
+
+class DBSCANModel:
+    def fit_predict(self, data: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+
+class DBSCANFactory:
+    def __call__(self, *, eps: float, min_samples: int, metric: str) -> DBSCANModel:
+        raise NotImplementedError
 
 
 @dataclass
@@ -51,12 +62,13 @@ def cluster(
         return []
 
     try:
-        from sklearn.cluster import DBSCAN
+        dbscan_factory = import_module("sklearn.cluster").DBSCAN
     except ImportError:
         return _fallback_cluster(anomalies)
 
     X = _feature_matrix(anomalies)
-    labels = DBSCAN(eps=eps, min_samples=min_samples, metric="euclidean").fit_predict(X)
+    model = dbscan_factory(eps=eps, min_samples=min_samples, metric="euclidean")
+    labels = model.fit_predict(X)
 
     clusters: dict[int, List[MetricAnomaly]] = {}
     for label, anomaly in zip(labels, anomalies):

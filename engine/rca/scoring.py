@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 from typing import List
 
+from api.responses import ErrorPropagation
 from engine.correlation.temporal import CorrelatedEvent
 from engine.events.registry import DeploymentEvent
 from engine.enums import RcaCategory
@@ -34,7 +35,7 @@ def score_deployment_correlation(
     return round(max(0.0, 1.0 - closest_lag / window_seconds), 3)
 
 
-def score_error_propagation(propagation: list) -> float:
+def score_error_propagation(propagation: list[ErrorPropagation]) -> float:
     if not propagation:
         return 0.0
     affected = sum(len(getattr(p, "affected_services", [])) for p in propagation)

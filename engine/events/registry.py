@@ -15,6 +15,8 @@ from typing import List
 
 from engine.events.models import DeploymentEvent
 
+__all__ = ["DeploymentEvent", "EventRegistry"]
+
 class EventRegistry:
     def __init__(self) -> None:
         self._events: List[DeploymentEvent] = []

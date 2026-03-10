@@ -1,5 +1,5 @@
 """
-Deployment event request models.
+Custom types used across the BeCertain codebase.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 
@@ -10,8 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from engine.events.models import DeploymentEvent
+from .json import JSONDict, JSONList, JSONScalar, JSONValue
 
-
-class DeploymentEventRequest(DeploymentEvent):
-    tenant_id: str
+__all__ = ["JSONScalar", "JSONValue", "JSONDict", "JSONList"]

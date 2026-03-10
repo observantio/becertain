@@ -10,24 +10,27 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import numpy as np
-from typing import Any, Dict
+from typing import Dict
 
 from fastapi import APIRouter, Depends, Query
 
 from api.requests import AnalyzeRequest, CorrelateRequest
-from api.routes.common import coerce_query_value, fetch_requested_metrics, get_provider
+from api.routes.common import coerce_query_value, get_provider, safe_call
 from api.routes.exception import handle_exceptions
-from config import DEFAULT_SERVICE_NAME
+from config import DEFAULT_METRIC_QUERIES, DEFAULT_SERVICE_NAME
+from datasources.provider import DataSourceProvider
 from engine import anomaly
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
+from engine.fetcher import fetch_metrics
 from engine.registry import get_registry
+from custom_types.json import JSONDict
 from services.security_service import enforce_request_tenant, require_permission_dependency
 from store import granger as granger_store
 
 router = APIRouter(tags=["Causal"])
 
 
-def _select_top_variance_series(series_map: Dict[str, list], max_series: int) -> Dict[str, list]:
+def _select_top_variance_series(series_map: Dict[str, list[float]], max_series: int) -> Dict[str, list[float]]:
 
     ranked: list[tuple[str, float]] = []
     for name, values in series_map.items():
@@ -53,6 +56,11 @@ def _common_causes_for_roots(causal_graph: CausalGraph, roots: list[str]) -> Dic
     return common
 
 
+async def _fetch_requested_metrics(provider: DataSourceProvider, req: CorrelateRequest) -> list[tuple[str, JSONDict]]:
+    queries = list(dict.fromkeys((getattr(req, "metric_queries", None) or []) + DEFAULT_METRIC_QUERIES))
+    return await safe_call(fetch_metrics(provider, queries, req.start, req.end, req.step))
+
+
 @router.post(
     "/causal/granger",
     summary="Granger causality between metrics (bounded by default)",
@@ -65,16 +73,16 @@ async def granger_causality(
     min_strength: float = Query(default=0.05, ge=0.0, le=1.0),
     max_series: int = Query(default=25, ge=2, le=200),
     include_raw: bool = Query(default=False),
-) -> Dict[str, Any]:
+) -> JSONDict:
     limit = coerce_query_value(limit, int)
     min_strength = coerce_query_value(min_strength, float)
     max_series = coerce_query_value(max_series, int)
     include_raw = coerce_query_value(include_raw, bool)
     req = enforce_request_tenant(req)
     provider = get_provider(req.tenant_id)
-    metrics_raw = await fetch_requested_metrics(provider, req)
+    metrics_raw = await _fetch_requested_metrics(provider, req)
 
-    series_map: Dict[str, list] = {}
+    series_map: Dict[str, list[float]] = {}
     for query_string, resp in metrics_raw:
         for metric_name, _, vals in anomaly.iter_series(resp, query_hint=query_string):
             series_key = f"{query_string}::{metric_name}"
@@ -89,17 +97,29 @@ async def granger_causality(
     merged = await granger_store.save_and_merge(req.tenant_id, service_label, fresh_results)
     merged = [item for item in merged if float(item.get("strength", 0.0)) >= float(min_strength)]
     merged = sorted(merged, key=lambda item: float(item.get("strength", 0.0)), reverse=True)[:limit]
+    warm_causal_pairs: list[JSONDict] = [
+        {
+            "cause_metric": item["cause_metric"],
+            "effect_metric": item["effect_metric"],
+            "max_lag": item["max_lag"],
+            "f_statistic": item["f_statistic"],
+            "p_value": item["p_value"],
+            "is_causal": item["is_causal"],
+            "strength": item["strength"],
+        }
+        for item in merged
+    ]
 
     causal_graph = CausalGraph()
     causal_graph.from_granger_results(fresh_results)
 
-    response: Dict[str, Any] = {
+    response: JSONDict = {
         "fresh_pairs": len(fresh_results),
         "warm_model_pairs": len(merged),
         "candidate_series": len(series_map),
         "selected_series": len(selected_series),
         "causal_pairs": [r.__dict__ for r in fresh_results],
-        "warm_causal_pairs": merged,
+        "warm_causal_pairs": warm_causal_pairs,
         "root_causes": causal_graph.root_causes(),
         "interventions": {
             root: causal_graph.simulate_intervention(root).__dict__
@@ -120,7 +140,7 @@ async def granger_causality(
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def bayesian_rca(req: AnalyzeRequest) -> Dict[str, Any]:
+async def bayesian_rca(req: AnalyzeRequest) -> JSONDict:
     req = enforce_request_tenant(req)
     deployment_events = await get_registry().events_in_window(req.tenant_id, req.start, req.end)
     scores = bayesian_score(
