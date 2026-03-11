@@ -1,5 +1,9 @@
 """
-Tests for correlation API route ensuring tenant-specific weights influence confidence calculation.
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
 import pytest
@@ -9,12 +13,10 @@ from api.requests import CorrelateRequest
 
 class DummyState:
     def __init__(self):
-        # weights chosen so metrics weight dominates
         self.weights_serializable = {"metrics": 1.0, "logs": 0.0, "traces": 0.0}
         self.update_count = 0
 
     def weighted_confidence(self, metric_score, log_score, trace_score):
-        # apply stored weights (only metrics non-zero)
         return metric_score * self.weights_serializable.get("metrics", 0.0)
 
 class DummyRegistry:

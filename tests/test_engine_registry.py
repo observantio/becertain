@@ -35,36 +35,23 @@ async def test_engine_registry_defaults_and_updates(monkeypatch):
 
     reg = ereg.TenantRegistry()
 
-    # initial state should coerce DEFAULT_WEIGHTS strings to Signal keys
     state = await reg.get_state(tid)
     assert state.update_count == 0
-    # weights property returns internal representation (Signal keys)
     assert set(state.weights.keys()) == {Signal.metrics, Signal.logs, Signal.traces}
-    # serializable form exposes string values
     assert state.weights_serializable == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
-
-    # calling update_weight with a string should be accepted
     await reg.update_weight(tid, "metrics", True)
     assert saved[tid]["weights"]["metrics"] > 0.3
     assert saved[tid]["update_count"] == 1
-
-    # the state still internally uses Signal key
     state2 = await reg.get_state(tid)
     assert Signal.metrics in state2.weights
-
-    # increasing the count and resetting
     state2.update_weight(Signal.logs, False)
     assert state2.update_count == 2
     await reg.reset_weights(tid)
     state3 = await reg.get_state(tid)
     assert state3.update_count == 0
     assert state3.weights_serializable == {"metrics": 0.3, "logs": 0.35, "traces": 0.35}
-
-    # ensure weighted_confidence returns weighted sum using current state
     base = state3.weighted_confidence(1.0, 1.0, 1.0)
-    # since defaults sum to 1, should equal 1.0
     assert base == pytest.approx(1.0)
-    # simulate skewing weights and confirm computation changes
     state3._weights[Signal.metrics] = 1.0
     state3._weights[Signal.logs] = 0.0
     state3._weights[Signal.traces] = 0.0
