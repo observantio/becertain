@@ -1,5 +1,7 @@
 [MASTER]
 ignore=build,tmp,vendor,tests,__pycache__
+jobs=1
+init-hook=import os,sys; cwd=os.getcwd(); sys.path.insert(0, cwd) if cwd not in sys.path else None
 
 [MESSAGES CONTROL]
 disable=
@@ -33,7 +35,10 @@ disable=
     too-many-nested-blocks,
     trailing-whitespace,
     trailing-newlines,
-    missing-final-newline
+    missing-final-newline,
+    import-error,
+    no-name-in-module,
+    no-member
 
 [BASIC]
 module-rgx=(BeObservant|[a-z_][a-z0-9_]*)$

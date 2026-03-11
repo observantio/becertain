@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import pytest
 
+import datasources.retry as retry_module
 from datasources.retry import retry
 
 
@@ -27,6 +28,27 @@ async def test_retry_async_success_after_failure():
     result = await flaky(5)
     assert result == 10
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_async_applies_backoff_sleep(monkeypatch):
+    calls = []
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(retry_module.asyncio, "sleep", fake_sleep)
+
+    @retry(attempts=3, delay=0.25, backoff=2.0, exceptions=(ValueError,))
+    async def flaky():
+        calls.append("x")
+        if len(calls) < 2:
+            raise ValueError("temporary")
+        return "ok"
+
+    assert await flaky() == "ok"
+    assert sleeps == [0.25]
 
 
 def test_retry_sync_success_after_failure():

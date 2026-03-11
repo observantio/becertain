@@ -109,6 +109,12 @@ def test_config_security_validation_edges():
             _reload_config_module()
 
 
+def test_config_secret_helpers_cover_strong_secret_path():
+    module = importlib.import_module("config")
+    assert module._normalized_secret("  Strong-Token-123  ") == "strong-token-123"
+    assert module._is_weak_secret("Strong-Token-123") is False
+
+
 def test_baseline_compute_and_score_paths(monkeypatch):
     monkeypatch.setattr(baseline_compute_module.settings, "baseline_min_samples", 6)
     monkeypatch.setattr(baseline_compute_module.settings, "baseline_seasonal_min_samples", 24)
@@ -232,6 +238,18 @@ def test_database_setup_session_and_connection_paths(monkeypatch):
     database_module.dispose_database()
     created_sql: list[str] = []
     disposed_admin: list[bool] = []
+
+    database_module._ensure_postgres_database_exists("sqlite:///tmp.db")
+    database_module._ensure_postgres_database_exists("postgresql://user:pass@db")
+
+    with pytest.raises(RuntimeError, match="Database not initialized"):
+        with database_module.get_db_session():
+            pass
+
+    with pytest.raises(RuntimeError, match="Database not initialized"):
+        database_module.init_db()
+
+    assert database_module.connection_test() is False
 
     class FakeScalarResult:
         def __init__(self, exists):

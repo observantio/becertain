@@ -207,6 +207,14 @@ uvicorn main:app --host 127.0.0.1 --port 4322 --reload
 pytest -q
 ```
 
+Coverage uses the focused service target defined in `pyproject.toml`, so the standard developer coverage command is:
+
+```bash
+pytest --cov=. --cov-report=term-missing
+```
+
+The service `pyproject.toml` also mirrors the core mypy and pytest settings so editors and local tooling can discover the same defaults from one place.
+
 ## Docker
 
 Build and run locally:
@@ -230,6 +238,7 @@ For multi-service development, prefer the root mono-repo `docker-compose.yml` an
 - `datasources/` abstracts the configured backends.
 - `engine/` contains the detection, correlation, causal, RCA, and topology logic.
 - `store/` contains caching and persistence helpers used by the analysis engine.
+- `pyproject.toml` is the developer-facing entry point for pytest, coverage, and mypy defaults; existing ini files remain in place for compatibility with current hooks.
 
 ## Troubleshooting
 
