@@ -7,3 +7,31 @@ repos:
         entry: bash -lc 'python -m pytest -q'
         pass_filenames: false
         always_run: true
+
+      - id: becertain-mypy
+        name: BeCertain mypy
+        language: system
+        entry: >-
+          bash -lc 'APP_ENV=development
+          ENVIRONMENT=development
+          BECERTAIN_DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/becertain
+          BECERTAIN_EXPECTED_SERVICE_TOKEN=ci_becertain_expected_service_token_123456789
+          BECERTAIN_CONTEXT_VERIFY_KEY=ci_becertain_context_verify_key_12345678901234567890
+          PYTHONPATH=$PWD
+          mypy --config-file "$PWD/mypy.ini" .'
+        pass_filenames: false
+        always_run: true
+
+      - id: becertain-pylint
+        name: BeCertain pylint
+        language: system
+        entry: >-
+          bash -lc 'APP_ENV=development
+          ENVIRONMENT=development
+          BECERTAIN_DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/becertain
+          BECERTAIN_EXPECTED_SERVICE_TOKEN=ci_becertain_expected_service_token_123456789
+          BECERTAIN_CONTEXT_VERIFY_KEY=ci_becertain_context_verify_key_12345678901234567890
+          PYTHONPATH=$PWD
+          pylint --rcfile "$PWD/.pylintrc" $(find . -maxdepth 1 -mindepth 1 \( -type d -o -name "*.py" \) ! -name tests ! -name __pycache__ ! -name build ! -name dist ! -name tmp ! -name vendor | sort)'
+        pass_filenames: false
+        always_run: true

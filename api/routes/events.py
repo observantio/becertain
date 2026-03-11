@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -18,6 +18,7 @@ from api.routes.exception import handle_exceptions
 from services.security_service import enforce_request_tenant, get_context_tenant, require_permission_dependency
 from engine.registry import get_registry
 from api.requests import DeploymentEventRequest
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["Events"])
 
@@ -47,8 +48,19 @@ async def register_deployment(req: DeploymentEventRequest, tenant_id: str | None
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def list_deployments(tenant_id: str) -> List[Dict[str, Any]]:
-    return await get_registry().get_events(get_context_tenant(tenant_id))
+async def list_deployments(tenant_id: str) -> List[JSONDict]:
+    return [
+        {
+            "service": item["service"],
+            "timestamp": item["timestamp"],
+            "version": item["version"],
+            "author": item["author"],
+            "environment": item["environment"],
+            "source": item["source"],
+            "metadata": item["metadata"],
+        }
+        for item in await get_registry().get_events(get_context_tenant(tenant_id))
+    ]
 
 
 @router.delete(

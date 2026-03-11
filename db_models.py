@@ -15,6 +15,8 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from custom_types.json import JSONDict
+
 
 class Base(DeclarativeBase):
     pass
@@ -36,7 +38,7 @@ class RcaJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
-    request_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    request_payload: Mapped[JSONDict] = mapped_column(JSON, nullable=False)
     summary_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -60,7 +62,7 @@ class RcaReport(Base):
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("rca_jobs.job_id", ondelete="CASCADE"), unique=True, nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     owner_user_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    result_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result_payload: Mapped[JSONDict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

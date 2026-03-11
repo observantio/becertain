@@ -9,8 +9,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.routes.common import safe_call
@@ -18,6 +16,7 @@ from api.routes.exception import handle_exceptions
 from engine.enums import Signal
 from engine.registry import get_registry
 from services.security_service import get_context_tenant, require_permission_dependency
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["ML"])
 
@@ -28,7 +27,7 @@ router = APIRouter(tags=["ML"])
     dependencies=[Depends(require_permission_dependency("create:rca"))],
 )
 @handle_exceptions
-async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> Dict[str, Any]:
+async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> JSONDict:
     tenant_id = get_context_tenant(tenant_id)
     try:
         sig = Signal(signal)
@@ -47,7 +46,7 @@ async def signal_feedback(tenant_id: str, signal: str, was_correct: bool) -> Dic
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def get_signal_weights(tenant_id: str) -> Dict[str, Any]:
+async def get_signal_weights(tenant_id: str) -> JSONDict:
     tenant_id = get_context_tenant(tenant_id)
     state = await safe_call(get_registry().get_state(tenant_id), 500)
     return {"weights": state.weights_serializable, "update_count": state.update_count}
@@ -59,7 +58,7 @@ async def get_signal_weights(tenant_id: str) -> Dict[str, Any]:
     dependencies=[Depends(require_permission_dependency("delete:rca"))],
 )
 @handle_exceptions
-async def reset_signal_weights(tenant_id: str) -> Dict[str, Any]:
+async def reset_signal_weights(tenant_id: str) -> JSONDict:
     tenant_id = get_context_tenant(tenant_id)
     state = await safe_call(get_registry().reset_weights(tenant_id), 500)
     return {"weights": state.weights_serializable, "update_count": state.update_count}

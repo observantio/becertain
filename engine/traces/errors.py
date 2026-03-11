@@ -11,7 +11,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from collections.abc import Mapping
+from typing import List
 
 from api.responses import ErrorPropagation
 from config import settings
@@ -20,13 +21,19 @@ from engine.topology import DependencyGraph
 from engine.traces.common import iter_trace_spans, span_has_error
 
 
-def detect_propagation(tempo_response: Dict[str, Any]) -> List[ErrorPropagation]:
-    service_errors: Dict[str, int] = defaultdict(int)
-    service_total: Dict[str, int] = defaultdict(int)
+def detect_propagation(tempo_response: Mapping[str, object]) -> List[ErrorPropagation]:
+    service_errors: dict[str, int] = defaultdict(int)
+    service_total: dict[str, int] = defaultdict(int)
     graph = DependencyGraph()
     graph.from_spans(tempo_response)
 
-    for trace in tempo_response.get("traces", []):
+    traces = tempo_response.get("traces")
+    if not isinstance(traces, list):
+        return []
+
+    for trace in traces:
+        if not isinstance(trace, dict):
+            continue
         service = trace.get("rootServiceName", "unknown")
         service_total[service] += 1
         has_error = False

@@ -13,7 +13,8 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter, defaultdict
-from typing import Any, Dict, Iterator, List, Tuple
+from collections.abc import Mapping
+from typing import Iterator, List, Tuple, TypedDict
 
 from config import settings
 
@@ -30,9 +31,32 @@ _SEVERITY_RE = {
 }
 
 
-def _iter_entries(loki_response: Dict[str, Any]) -> Iterator[Tuple[float, str]]:
-    for stream in loki_response.get("data", {}).get("result", []):
-        for ts_ns, line in stream.get("values", []):
+class PatternBucket(TypedDict):
+    count: int
+    first: float
+    last: float
+    severity: Severity
+    sample: str
+    tokens: list[str]
+
+
+def _iter_entries(loki_response: Mapping[str, object]) -> Iterator[Tuple[float, str]]:
+    data = loki_response.get("data")
+    if not isinstance(data, dict):
+        return
+    streams = data.get("result")
+    if not isinstance(streams, list):
+        return
+    for stream in streams:
+        if not isinstance(stream, dict):
+            continue
+        values = stream.get("values")
+        if not isinstance(values, list):
+            continue
+        for entry in values:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            ts_ns, line = entry[0], entry[1]
             yield float(ts_ns) / 1e9, line
 
 
@@ -55,8 +79,8 @@ def _entropy(tokens: List[str]) -> float:
     return -sum((c / total) * math.log2(c / total) for c in counts.values())
 
 
-def analyze(loki_response: Dict[str, Any]) -> List[LogPattern]:
-    buckets: Dict[str, Dict] = defaultdict(lambda: {
+def analyze(loki_response: Mapping[str, object]) -> List[LogPattern]:
+    buckets: dict[str, PatternBucket] = defaultdict(lambda: {
         "count": 0,
         "first": float("inf"),
         "last": float("-inf"),

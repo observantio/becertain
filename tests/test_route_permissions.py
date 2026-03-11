@@ -7,6 +7,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
+
 from __future__ import annotations
 
 import pytest
@@ -67,9 +68,10 @@ def test_ensure_permission_allows_valid_permission():
 def _route_permission(route: APIRoute) -> str | None:
     for dependency in route.dependencies:
         fn = dependency.dependency
-        if fn is None or not getattr(fn, "__closure__", None):
+        closure = getattr(fn, "__closure__", None) if fn is not None else None
+        if closure is None:
             continue
-        for cell in fn.__closure__:
+        for cell in closure:
             value = cell.cell_contents
             if isinstance(value, str) and value.endswith(":rca"):
                 return value

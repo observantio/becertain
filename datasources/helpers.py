@@ -10,21 +10,22 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 import httpx
 from datasources.exceptions import DataSourceUnavailable, InvalidQuery, QueryTimeout
+from datasources.types import JSONDict, QueryParams
 
 
 async def fetch_json(
     url: str,
-    params: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
+    params: Optional[QueryParams] = None,
+    headers: Optional[dict[str, str]] = None,
     timeout: int = 30,
     client: Optional[httpx.AsyncClient] = None,
     invalid_msg: str = "query failed",
     timeout_msg: str = "query timed out",
     unavailable_msg: str = "Cannot reach data source at",
-) -> Dict[str, Any]:
+) -> JSONDict:
     try:
         if client is None:
             async with httpx.AsyncClient(timeout=timeout) as owned_client:
@@ -32,7 +33,8 @@ async def fetch_json(
         else:
             resp = await client.get(url, params=params, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        payload = resp.json()
+        return payload if isinstance(payload, dict) else {}
     except httpx.HTTPStatusError as e:
         raise InvalidQuery(f"{invalid_msg} [{e.response.status_code}]: {e.response.text}") from e
     except httpx.TimeoutException as e:
@@ -43,7 +45,7 @@ async def fetch_json(
 
 async def fetch_text(
     url: str,
-    headers: Optional[Dict[str, str]] = None,
+    headers: Optional[dict[str, str]] = None,
     timeout: int = 30,
     client: Optional[httpx.AsyncClient] = None,
     invalid_msg: str = "request failed",

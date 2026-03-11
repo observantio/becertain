@@ -12,18 +12,44 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+from importlib import import_module
 import logging
 import time
-from typing import Any, Optional
+from types import ModuleType
+from typing import AsyncIterator, Optional, Protocol, cast
+
+RedisError: type[Exception] = OSError
+_redis_exceptions_module: ModuleType | None
 
 try:
-    from redis.exceptions import RedisError
+    _redis_exceptions_module = import_module("redis.exceptions")
 except ImportError:
-    RedisError = OSError
+    _redis_exceptions_module = None
+else:
+    redis_error = getattr(_redis_exceptions_module, "RedisError", OSError)
+    RedisError = redis_error if isinstance(redis_error, type) and issubclass(redis_error, Exception) else OSError
 
 log = logging.getLogger(__name__)
 
-_redis_client: Any = None
+
+class RedisPipelineProtocol(Protocol):
+    def rpush(self, key: str, value: str) -> object: ...
+    def ltrim(self, key: str, start: int, end: int) -> object: ...
+    def expire(self, key: str, ttl: int) -> object: ...
+    async def execute(self) -> object: ...
+
+
+class RedisClientProtocol(Protocol):
+    async def ping(self) -> object: ...
+    async def get(self, key: str) -> Optional[str]: ...
+    async def setex(self, key: str, ttl: int, value: str) -> object: ...
+    async def set(self, key: str, value: str) -> object: ...
+    async def delete(self, key: str) -> object: ...
+    def pipeline(self) -> RedisPipelineProtocol: ...
+    async def lrange(self, key: str, start: int, end: int) -> list[str]: ...
+    def scan_iter(self, pattern: str) -> AsyncIterator[str]: ...
+
+_redis_client: Optional[RedisClientProtocol] = None
 _fallback: dict[str, str] = {}
 _fallback_lists: dict[str, list[str]] = {}
 _using_fallback = False
@@ -41,7 +67,7 @@ except (ImportError, AttributeError, TypeError, ValueError):
     _REDIS_OP_TIMEOUT_SECONDS = 0.5
 
 
-async def get_redis() -> Any:
+async def get_redis() -> Optional[RedisClientProtocol]:
     global _redis_client, _using_fallback, _retry_after_monotonic
 
     if _redis_client is not None:
@@ -51,21 +77,16 @@ async def get_redis() -> Any:
         return None
 
     async with _init_lock:
-        if _redis_client is not None:
-            return _redis_client
-        if time.monotonic() < _retry_after_monotonic:
-            _using_fallback = True
-            return None
         try:
-            import redis.asyncio as aioredis
+            aioredis = import_module("redis.asyncio")
             from config import REDIS_URL
 
-            client = aioredis.from_url(
+            client = cast(RedisClientProtocol, aioredis.from_url(
                 REDIS_URL,
                 decode_responses=True,
                 socket_connect_timeout=0.5,
                 socket_timeout=0.5,
-            )
+            ))
             await asyncio.wait_for(client.ping(), timeout=0.5)
             _redis_client = client
             _retry_after_monotonic = 0.0

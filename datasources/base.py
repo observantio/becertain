@@ -9,13 +9,15 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Optional
 import httpx
+
+from datasources.types import JSONDict, TraceFilters
 
 class BaseConnector(ABC):
     health_path: str = ""
 
-    def __init__(self, tenant_id: str, base_url: str, timeout: int = 30, headers: Optional[Dict[str, str]] = None):
+    def __init__(self, tenant_id: str, base_url: str, timeout: int = 30, headers: Optional[dict[str, str]] = None):
         self.tenant_id = tenant_id
         self.base_url = str(base_url).rstrip("/")
         self.timeout = timeout
@@ -28,7 +30,7 @@ class BaseConnector(ABC):
             raise NotImplementedError("connector must define health_path")
         return f"{self.base_url}{self.health_path}"
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         return {**self.headers, "X-Scope-OrgID": self.tenant_id}
 
     async def aclose(self) -> None:
@@ -44,7 +46,7 @@ class LogsConnector(BaseConnector):
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> JSONDict:
         ...
 
 
@@ -57,7 +59,7 @@ class MetricsConnector(BaseConnector):
         start: int,
         end: int,
         step: str,
-    ) -> Dict[str, Any]:
+    ) -> JSONDict:
         ...
 
 
@@ -66,9 +68,9 @@ class TracesConnector(BaseConnector):
     @abstractmethod
     async def query_range(
         self,
-        filters: Dict[str, Any],
+        filters: TraceFilters,
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> JSONDict:
         ...

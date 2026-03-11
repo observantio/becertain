@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import httpx
 
@@ -7,6 +7,7 @@ from connectors.common import query_backend_json
 from datasources.base import MetricsConnector
 from datasources.helpers import fetch_text
 from datasources.retry import retry
+from datasources.types import JSONDict, QueryParams
 
 
 class MimirConnector(MetricsConnector):
@@ -17,8 +18,8 @@ class MimirConnector(MetricsConnector):
         base_url: str,
         tenant_id: str,
         timeout: int = DATASOURCE_TIMEOUT,
-        headers: Optional[Dict[str, str]] = None,
-    ):
+        headers: Optional[dict[str, str]] = None,
+    ) -> None:
         super().__init__(tenant_id, base_url, timeout, headers)
 
     @retry(attempts=3, delay=0.5, backoff=2.0, exceptions=(httpx.RequestError, httpx.TimeoutException))
@@ -41,8 +42,8 @@ class MimirConnector(MetricsConnector):
         start: int,
         end: int,
         step: str,
-    ) -> Dict[str, Any]:
-        params: Dict[str, Any] = {"query": query, "start": start, "end": end, "step": step}
+    ) -> JSONDict:
+        params: QueryParams = {"query": query, "start": start, "end": end, "step": step}
         return await query_backend_json(
             self,
             path="/prometheus/api/v1/query_range",

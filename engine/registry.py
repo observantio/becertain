@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 import logging
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 from engine.enums import Signal
 from store import events as event_store, weights as weight_store
@@ -38,7 +38,7 @@ def _default_weights() -> Dict[Signal, float]:
     return defaults
 
 
-def _coerce_weights(raw: Any) -> Dict[Signal, float]:
+def _coerce_weights(raw: object) -> Dict[Signal, float]:
     weights = _default_weights()
     if not isinstance(raw, dict):
         return weights
@@ -70,11 +70,19 @@ def _serialize_weights(weights: Dict[Signal, float]) -> Dict[str, float]:
     return {k.value: v for k, v in weights.items()}
 
 
-def _coerce_update_count(value: Any) -> int:
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
+def _coerce_update_count(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value)) if math.isfinite(value) else 0
+    if isinstance(value, str):
+        try:
+            return max(0, int(value))
+        except ValueError:
+            return 0
+    return 0
 
 
 class TenantState:
@@ -176,13 +184,13 @@ class TenantRegistry:
     async def register_event(self, tenant_id: str, event: DeploymentEvent) -> None:
         await event_store.append(tenant_id, event)
 
-    async def get_events(self, tenant_id: str) -> List[dict]:
+    async def get_events(self, tenant_id: str) -> List[event_store.StoredEvent]:
         return await event_store.load(tenant_id)
 
     async def clear_events(self, tenant_id: str) -> None:
         await event_store.clear(tenant_id)
 
-    async def events_in_window(self, tenant_id: str, start: float, end: float) -> List[dict]:
+    async def events_in_window(self, tenant_id: str, start: float, end: float) -> List[event_store.StoredEvent]:
         events = await event_store.load(tenant_id)
         return [e for e in events if start <= e["timestamp"] <= end]
 

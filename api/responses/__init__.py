@@ -8,22 +8,49 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-from .analysis import AnalysisQuality, AnalysisReport
-from .anomalies import MetricAnomaly
-from .base import NpModel
-from .jobs import (
-    AnalyzeJobCreateResponse,
-    AnalyzeJobListResponse,
-    AnalyzeJobResultResponse,
-    AnalyzeJobSummary,
-    AnalyzeReportDeleteResponse,
-    AnalyzeReportResponse,
-    JobStatus,
-)
-from .logs import LogBurst, LogPattern
-from .rca import RootCause
-from .slo import BudgetStatus, SloBurnAlert
-from .traces import ErrorPropagation, ServiceLatency
+from __future__ import annotations
+
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .analysis import AnalysisQuality, AnalysisReport
+    from .anomalies import MetricAnomaly
+    from .base import NpModel
+    from .jobs import (
+        AnalyzeJobCreateResponse,
+        AnalyzeJobListResponse,
+        AnalyzeJobResultResponse,
+        AnalyzeJobSummary,
+        AnalyzeReportDeleteResponse,
+        AnalyzeReportResponse,
+        JobStatus,
+    )
+    from .logs import LogBurst, LogPattern
+    from .rca import RootCause
+    from .slo import BudgetStatus, SloBurnAlert
+    from .traces import ErrorPropagation, ServiceLatency
+
+_EXPORT_MODULES = {
+    "NpModel": ".base",
+    "MetricAnomaly": ".anomalies",
+    "LogBurst": ".logs",
+    "LogPattern": ".logs",
+    "ServiceLatency": ".traces",
+    "ErrorPropagation": ".traces",
+    "RootCause": ".rca",
+    "SloBurnAlert": ".slo",
+    "BudgetStatus": ".slo",
+    "AnalysisQuality": ".analysis",
+    "AnalysisReport": ".analysis",
+    "JobStatus": ".jobs",
+    "AnalyzeJobCreateResponse": ".jobs",
+    "AnalyzeJobSummary": ".jobs",
+    "AnalyzeJobListResponse": ".jobs",
+    "AnalyzeJobResultResponse": ".jobs",
+    "AnalyzeReportResponse": ".jobs",
+    "AnalyzeReportDeleteResponse": ".jobs",
+}
 
 __all__ = [
     "NpModel",
@@ -45,3 +72,13 @@ __all__ = [
     "AnalyzeReportResponse",
     "AnalyzeReportDeleteResponse",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_name, __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

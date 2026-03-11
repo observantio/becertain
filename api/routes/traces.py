@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 from fastapi import APIRouter, Depends
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
@@ -17,6 +17,7 @@ from services.security_service import enforce_request_tenant, require_permission
 from engine import traces
 from api.requests import TraceRequest
 from api.responses import ServiceLatency
+from datasources.types import TraceFilters
 
 router = APIRouter(tags=["Traces"])
 
@@ -29,7 +30,7 @@ router = APIRouter(tags=["Traces"])
 @handle_exceptions
 async def trace_anomalies(req: TraceRequest) -> List[ServiceLatency]:
     req = enforce_request_tenant(req)
-    filters: Dict[str, Any] = {}
+    filters: TraceFilters = {}
     if req.service:
         filters["service.name"] = req.service
     raw = await safe_call(

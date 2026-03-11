@@ -12,9 +12,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Iterator, Optional, Tuple, Union
+from collections.abc import Mapping
+from typing import Iterator, Optional, TypeAlias
 
 log = logging.getLogger(__name__)
+
+MetricRecord: TypeAlias = dict[str, object]
+MimirResponse: TypeAlias = Mapping[str, object]
+WrappedMimirResponse: TypeAlias = MimirResponse | tuple[object, MimirResponse]
 
 _LABEL_PRIORITY = (
     "service",
@@ -77,7 +82,7 @@ def _metric_hint_from_query(query_hint: Optional[str]) -> Optional[str]:
     tokens = _PROMQL_TOKEN_RE.findall(text)
     if not tokens:
         return None
-    candidates = [
+    candidates: list[str] = [
         token
         for token in tokens
         if token.lower() not in _PROMQL_EXCLUDED_TOKENS
@@ -89,7 +94,7 @@ def _metric_hint_from_query(query_hint: Optional[str]) -> Optional[str]:
     return None
 
 
-def _fallback_metric_name(metric: dict[str, Any], query_hint: Optional[str]) -> str:
+def _fallback_metric_name(metric: MetricRecord, query_hint: Optional[str]) -> str:
     hinted = _metric_hint_from_query(query_hint)
     if hinted:
         return hinted
@@ -104,9 +109,9 @@ def _fallback_metric_name(metric: dict[str, Any], query_hint: Optional[str]) -> 
 
 
 def iter_series(
-    mimir_response: Union[Dict[str, Any], Tuple[Any, Dict[str, Any]]],
+    mimir_response: WrappedMimirResponse,
     query_hint: Optional[str] = None,
-) -> Iterator[Tuple[str, list, list]]:
+) -> Iterator[tuple[str, list[float], list[float]]]:
     if isinstance(mimir_response, tuple):
         if len(mimir_response) == 2 and isinstance(mimir_response[1], dict):
             if query_hint is None and isinstance(mimir_response[0], str):
@@ -120,7 +125,12 @@ def iter_series(
         log.warning("iter_series expected dict, got %s", type(mimir_response).__name__)
         return
 
-    results = mimir_response.get("data", {}).get("result", [])
+    data = mimir_response.get("data")
+    if not isinstance(data, dict):
+        log.warning("iter_series: 'data' is not a dict: %s", type(data).__name__)
+        return
+
+    results = data.get("result")
     if not isinstance(results, list):
         log.warning("iter_series: 'data.result' is not a list: %s", type(results).__name__)
         return
@@ -129,7 +139,8 @@ def iter_series(
         if not isinstance(result, dict):
             continue
 
-        metric = result.get("metric", {})
+        metric_raw = result.get("metric")
+        metric = metric_raw if isinstance(metric_raw, dict) else {}
         base = str(metric.get("__name__") or "").strip()
         if not base or base.lower() in _GENERIC_METRIC_NAMES:
             base = _fallback_metric_name(metric, query_hint)
@@ -146,13 +157,15 @@ def iter_series(
                 break
         label = f"{base}{{{','.join(label_parts)}}}" if label_parts else base
 
-        pairs = result.get("values", [])
-        if not pairs:
+        pairs = result.get("values")
+        if not isinstance(pairs, list) or not pairs:
             continue
 
         ts: list[float] = []
         vals: list[float] = []
         for p in pairs:
+            if not isinstance(p, (list, tuple)) or len(p) < 2:
+                continue
             try:
                 ts.append(float(p[0]))
                 vals.append(float(p[1]))

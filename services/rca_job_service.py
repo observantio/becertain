@@ -14,9 +14,10 @@ import base64
 import binascii
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
@@ -27,6 +28,7 @@ from api.requests import AnalyzeRequest
 from services.analyze_service import run_analysis
 from services.security_service import InternalContext
 from config import settings
+from custom_types.json import JSONDict
 from database import get_db_session
 from db_models import RcaJob, RcaReport
 
@@ -39,12 +41,14 @@ _JOB_EXECUTION_ERRORS = (
     ValueError,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _coerce_datetime(value: Any) -> datetime:
+def _coerce_datetime(value: object) -> datetime:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
@@ -52,13 +56,13 @@ def _coerce_datetime(value: Any) -> datetime:
     return _utcnow()
 
 
-def _coerce_optional_datetime(value: Any) -> Optional[datetime]:
+def _coerce_optional_datetime(value: object) -> Optional[datetime]:
     if value is None:
         return None
     return _coerce_datetime(value)
 
 
-def _duration_ms(start: Any, end: Any) -> int:
+def _duration_ms(start: object, end: object) -> int:
     start_dt = _coerce_datetime(start)
     end_dt = _coerce_datetime(end)
     return max(0, int((end_dt - start_dt).total_seconds() * 1000))
@@ -107,10 +111,10 @@ class RcaJobService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._semaphore = asyncio.Semaphore(max(1, int(settings.analyze_max_concurrency)))
-        self._tasks: dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
 
     @staticmethod
-    def _fingerprint(payload: dict[str, Any]) -> str:
+    def _fingerprint(payload: JSONDict) -> str:
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -201,7 +205,7 @@ class RcaJobService:
                 started_at = _utcnow()
                 await asyncio.to_thread(self._mark_running, job_id, started_at)
                 try:
-                    req = AnalyzeRequest(**row.request_payload)
+                    req = AnalyzeRequest.model_validate(row.request_payload)
                     timeout = float(settings.analyze_timeout_seconds)
                     result_model = await asyncio.wait_for(run_analysis(req), timeout=timeout)
                     result = result_model.model_dump() if hasattr(result_model, "model_dump") else dict(result_model)
@@ -211,6 +215,9 @@ class RcaJobService:
                     await asyncio.to_thread(self._mark_cancelled, job_id, _utcnow(), "Cancelled by report owner")
                     raise
                 except _JOB_EXECUTION_ERRORS as exc:
+                    await asyncio.to_thread(self._mark_failed, job_id, _utcnow(), str(exc))
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    logger.exception("Unexpected RCA job execution error for job_id=%s", job_id)
                     await asyncio.to_thread(self._mark_failed, job_id, _utcnow(), str(exc))
         finally:
             async with self._lock:
@@ -229,7 +236,7 @@ class RcaJobService:
             row.started_at = started_at
             row.error = None
 
-    def _mark_completed(self, job_id: str, finished_at: datetime, result: dict[str, Any]) -> None:
+    def _mark_completed(self, job_id: str, finished_at: datetime, result: JSONDict) -> None:
         with get_db_session() as db:
             row = db.get(RcaJob, job_id)
             if row is None or row.status in {JobStatus.DELETED.value, JobStatus.CANCELLED.value}:
@@ -334,8 +341,8 @@ class RcaJobService:
 
         return await asyncio.to_thread(_get)
 
-    async def get_job_result(self, *, job_id: str, ctx: InternalContext) -> tuple[JobView, Optional[dict[str, Any]]]:
-        def _get() -> tuple[JobView, Optional[dict[str, Any]]]:
+    async def get_job_result(self, *, job_id: str, ctx: InternalContext) -> tuple[JobView, Optional[JSONDict]]:
+        def _get() -> tuple[JobView, Optional[JSONDict]]:
             with get_db_session() as db:
                 row = db.get(RcaJob, job_id)
                 if row is None or row.status == JobStatus.DELETED.value:
@@ -351,8 +358,8 @@ class RcaJobService:
 
         return await asyncio.to_thread(_get)
 
-    async def get_report(self, *, report_id: str, ctx: InternalContext) -> tuple[JobView, Optional[dict[str, Any]]]:
-        def _get() -> tuple[JobView, Optional[dict[str, Any]]]:
+    async def get_report(self, *, report_id: str, ctx: InternalContext) -> tuple[JobView, Optional[JSONDict]]:
+        def _get() -> tuple[JobView, Optional[JSONDict]]:
             with get_db_session() as db:
                 report = db.get(RcaReport, report_id)
                 if report is None:
@@ -369,7 +376,7 @@ class RcaJobService:
         return await asyncio.to_thread(_get)
 
     async def delete_report(self, *, report_id: str, ctx: InternalContext) -> None:
-        task_to_cancel: Optional[asyncio.Task] = None
+        task_to_cancel: Optional[asyncio.Task[None]] = None
 
         def _delete() -> str:
             with get_db_session() as db:

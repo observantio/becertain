@@ -14,9 +14,9 @@ import asyncio
 import inspect
 import time
 from functools import wraps
-from typing import Any, Callable, Type, TypeVar, Tuple, cast
+from typing import Awaitable, Callable, Type, Tuple, TypeVar, cast
 
-F = TypeVar("F", bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., object])
 
 def retry(
     *,
@@ -29,13 +29,15 @@ def retry(
         is_async = inspect.iscoroutinefunction(func)
 
         if is_async:
+            async_func = cast(Callable[..., Awaitable[object]], func)
+
             @wraps(func)
-            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            async def async_wrapper(*args: object, **kwargs: object) -> object:
                 _attempt = 0
                 _delay = delay
                 while True:
                     try:
-                        return await func(*args, **kwargs)
+                        return await async_func(*args, **kwargs)
                     except exceptions:
                         _attempt += 1
                         if _attempt >= attempts:
@@ -46,13 +48,15 @@ def retry(
             return cast(F, async_wrapper)
 
         else:
+            sync_func = cast(Callable[..., object], func)
+
             @wraps(func)
-            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            def sync_wrapper(*args: object, **kwargs: object) -> object:
                 _attempt = 0
                 _delay = delay
                 while True:
                     try:
-                        return func(*args, **kwargs)
+                        return sync_func(*args, **kwargs)
                     except exceptions:
                         _attempt += 1
                         if _attempt >= attempts:

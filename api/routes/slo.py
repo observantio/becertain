@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
 from fastapi import APIRouter, Depends
 from api.routes.common import get_provider, safe_call
 from api.routes.exception import handle_exceptions
@@ -19,6 +18,7 @@ from engine import anomaly
 from engine.slo import evaluate as slo_evaluate, remaining_minutes
 from api.requests import SloRequest
 from config import settings
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["SLO"])
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def slo_burn(req: SloRequest) -> Dict[str, Any]:
+async def slo_burn(req: SloRequest) -> JSONDict:
     req = enforce_request_tenant(req)
     error_q = req.error_query or settings.slo_error_query_template.format(service=req.service)
     total_q = req.total_query or settings.slo_total_query_template.format(service=req.service)

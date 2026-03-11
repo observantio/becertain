@@ -8,7 +8,6 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-
 from engine.causal.graph import CausalGraph, InterventionResult
 from engine.causal.bayesian import score as bayesian_score
 from engine.causal.granger import granger_pair_analysis, granger_multiple_pairs, GrangerResult
@@ -42,4 +41,4 @@ def test_granger_pair_and_all():
     assert res.effect_metric == "e"
     allr = granger_multiple_pairs({"c": cause, "e": effect})
     assert allr
-    assert allr[0].cause_metric == "c"
+    assert any(result.cause_metric == "c" and result.effect_metric == "e" for result in allr)

@@ -9,17 +9,17 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict
 from fastapi import APIRouter
 from store.client import get_redis, is_using_fallback
 from api.routes.exception import handle_exceptions
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["Health"])
 
 
 @router.get("/health")
 @handle_exceptions
-async def health() -> Dict[str, Any]:
+async def health() -> JSONDict:
     await get_redis()
     return {
         "status": "ok",

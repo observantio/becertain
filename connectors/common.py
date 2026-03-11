@@ -2,20 +2,32 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Protocol
+
+import httpx
 
 from datasources.helpers import fetch_json
+from datasources.types import JSONDict, QueryParams
+
+
+class _BackendConnector(Protocol):
+    base_url: str
+    timeout: int
+    client: httpx.AsyncClient
+
+    def _headers(self) -> dict[str, str]:
+        ...
 
 
 async def query_backend_json(
-    connector,
+    connector: _BackendConnector,
     *,
     path: str,
-    params: Dict[str, Any],
+    params: QueryParams,
     invalid_msg: str,
     timeout_msg: str,
     unavailable_msg: str,
-) -> Dict[str, Any]:
+) -> JSONDict:
     return await fetch_json(
         f"{connector.base_url}{path}",
         params=params,

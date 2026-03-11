@@ -11,7 +11,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from importlib import import_module
+from typing import List, Optional, Protocol
 
 import numpy as np
 
@@ -50,6 +51,23 @@ _FEATURE_NAMES = [
 ]
 
 
+class RandomForestClassifierModel(Protocol):
+    feature_importances_: np.ndarray
+
+    def fit(self, data: np.ndarray, labels: list[int]) -> object: ...
+    def predict_proba(self, data: np.ndarray) -> np.ndarray: ...
+
+
+class RandomForestClassifierFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        n_estimators: int,
+        max_depth: int | None,
+        random_state: int,
+    ) -> RandomForestClassifierModel: ...
+
+
 def rank(
     causes: List[RootCause],
     correlated_events: Optional[List[CorrelatedEvent]] = None,
@@ -77,12 +95,12 @@ def rank(
     X = np.array(feature_matrix, dtype=float)
 
     try:
-        from sklearn.ensemble import RandomForestClassifier
+        random_forest_classifier: RandomForestClassifierFactory = import_module("sklearn.ensemble").RandomForestClassifier
 
         if len(causes) >= 4:
             labels = [1 if c.confidence >= settings.ranking_label_threshold else 0 for c in causes]
             if len(set(labels)) > 1:
-                rf = RandomForestClassifier(
+                rf = random_forest_classifier(
                     n_estimators=settings.ranking_rf_n_estimators,
                     max_depth=settings.ranking_rf_max_depth,
                     random_state=settings.ranking_rf_random_state,

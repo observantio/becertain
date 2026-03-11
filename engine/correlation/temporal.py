@@ -80,9 +80,11 @@ def _latency_window(latency: ServiceLatency) -> tuple[float | None, float | None
     return start, end
 
 
-def _safe_float(value) -> float | None:
+def _safe_float(value: object) -> float | None:
     try:
         if value is None:
+            return None
+        if not isinstance(value, (str, int, float)):
             return None
         number = float(value)
         return None if math.isnan(number) else number

@@ -9,17 +9,19 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from hmac import compare_digest
 import logging
 import threading
 import time
-from typing import Any, Mapping, Optional
+from typing import Mapping, Optional, TypeVar
 
 import jwt
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -29,6 +31,7 @@ _context_var: ContextVar["InternalContext | None"] = ContextVar("becertain_inter
 log = logging.getLogger(__name__)
 _jti_seen_lock = threading.Lock()
 _jti_seen_cache: dict[str, float] = {}
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 @dataclass(frozen=True)
@@ -80,12 +83,31 @@ def _parse_bearer(auth_header: str | None) -> str:
     return parts[1].strip()
 
 
-def _decode_context_token(token: str) -> dict[str, Any]:
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _required_int_claim(payload: Mapping[str, object], key: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool):
+        raise TypeError(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(key)
+
+
+def _decode_context_token(token: str) -> dict[str, object]:
     key = settings.context_verify_key
     if not key:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Missing context verify key")
     try:
-        payload = jwt.decode(
+        decoded = jwt.decode(
             token,
             key,
             algorithms=_context_algorithms(),
@@ -97,10 +119,13 @@ def _decode_context_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Context token expired") from exc
     except jwt.InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token") from exc
+    if not isinstance(decoded, Mapping):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token payload")
+    payload = {str(k): v for k, v in decoded.items()}
     try:
-        iat = int(payload.get("iat"))
-        exp = int(payload.get("exp"))
-    except Exception as exc:
+        iat = _required_int_claim(payload, "iat")
+        exp = _required_int_claim(payload, "exp")
+    except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token claims") from exc
     if exp <= iat:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token lifetime")
@@ -111,7 +136,7 @@ def _decode_context_token(token: str) -> dict[str, Any]:
     return payload
 
 
-def _build_context(payload: dict[str, Any]) -> InternalContext:
+def _build_context(payload: Mapping[str, object]) -> InternalContext:
     tenant_id = str(payload.get("tenant_id", "")).strip()
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing tenant context")
@@ -120,18 +145,18 @@ def _build_context(payload: dict[str, Any]) -> InternalContext:
         org_id=str(payload.get("org_id", tenant_id)),
         user_id=str(payload.get("user_id", "")),
         username=str(payload.get("username", "")),
-        permissions=list(payload.get("permissions") or []),
-        group_ids=list(payload.get("group_ids") or []),
+        permissions=_string_list(payload.get("permissions")),
+        group_ids=_string_list(payload.get("group_ids")),
         role=str(payload.get("role", "user")),
         is_superuser=bool(payload.get("is_superuser", False)),
     )
 
 
-def set_internal_context(ctx: InternalContext) -> Token:
+def set_internal_context(ctx: InternalContext) -> Token[InternalContext | None]:
     return _context_var.set(ctx)
 
 
-def reset_internal_context(token: Token) -> None:
+def reset_internal_context(token: Token[InternalContext | None]) -> None:
     _context_var.reset(token)
 
 
@@ -159,26 +184,16 @@ def ensure_permission(permission: str) -> InternalContext:
     return ctx
 
 
-def require_permission_dependency(permission: str):
+def require_permission_dependency(permission: str) -> Callable[[], InternalContext]:
     def _dependency() -> InternalContext:
         return ensure_permission(permission)
 
     return _dependency
 
 
-def enforce_request_tenant(model: Any) -> Any:
-    if model is None:
-        return model
+def enforce_request_tenant(model: ModelT) -> ModelT:
     tenant = get_context_tenant(getattr(model, "tenant_id", None))
-    if hasattr(model, "model_copy"):
-        return model.model_copy(update={"tenant_id": tenant})
-    if hasattr(model, "copy"):
-        return model.copy(update={"tenant_id": tenant})
-    try:
-        model.tenant_id = tenant
-    except (AttributeError, TypeError) as exc:
-        log.warning("Failed to apply tenant context to request model %s: %s", type(model).__name__, exc)
-    return model
+    return model.model_copy(update={"tenant_id": tenant})
 
 
 def authenticate_internal_request(request: Request) -> InternalContext:
@@ -204,7 +219,11 @@ def _requires_internal_auth(path: str) -> bool:
 
 
 class InternalAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         path = str(request.url.path or "")
         if not _requires_internal_auth(path):
             return await call_next(request)

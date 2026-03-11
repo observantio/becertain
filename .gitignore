@@ -7,3 +7,5 @@ __pycache__/
 *.log
 *.db
 .ruff_cache
+.coverage
+.vscode/

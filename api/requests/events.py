@@ -12,4 +12,6 @@ from __future__ import annotations
 
 from engine.events.models import DeploymentEvent
 
-DeploymentEventRequest = DeploymentEvent
+
+class DeploymentEventRequest(DeploymentEvent):
+    tenant_id: str

@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from fastapi import APIRouter, Depends, Query
 
@@ -20,8 +20,16 @@ from engine import anomaly
 from config import FORECAST_THRESHOLDS
 from engine.forecast import analyze_degradation, forecast
 from services.security_service import enforce_request_tenant, require_permission_dependency
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["Forecast"])
+
+
+def _severity_value(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    severity = payload.get("severity")
+    return severity.lower() if isinstance(severity, str) else ""
 
 
 @router.post(
@@ -33,13 +41,13 @@ router = APIRouter(tags=["Forecast"])
 async def metric_trajectory(
     req: CorrelateRequest,
     limit: int = Query(default=100, ge=1, le=2000),
-) -> Dict[str, Any]:
+) -> JSONDict:
     limit = coerce_query_value(limit, int)
     req = enforce_request_tenant(req)
     provider = get_provider(req.tenant_id)
     metrics_raw = await fetch_requested_metrics(provider, req)
 
-    results: List[Dict[str, Any]] = []
+    results: List[JSONDict] = []
     for query_string, resp in metrics_raw:
         for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string):
             threshold = next(
@@ -55,7 +63,7 @@ async def metric_trajectory(
                 })
     severity_rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
     results.sort(key=lambda row: max(
-        severity_rank.get(str((row.get("forecast") or {}).get("severity", "")).lower(), 0),
-        severity_rank.get(str((row.get("degradation") or {}).get("severity", "")).lower(), 0),
+        severity_rank.get(_severity_value(row.get("forecast")), 0),
+        severity_rank.get(_severity_value(row.get("degradation")), 0),
     ), reverse=True)
     return {"results": results[:limit]}

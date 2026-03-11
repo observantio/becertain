@@ -11,19 +11,22 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import dataclasses
 import logging
 import math
 import re
 import time
 from collections import defaultdict
-from typing import Dict, List, Tuple, cast
+from typing import Dict, List, Sequence, TypeAlias, TypeVar, Tuple
 
 import httpx
 import numpy as np
 
+from custom_types.json import JSONDict
 from datasources.provider import DataSourceProvider
 from engine import anomaly, logs, rca, traces
+from engine.anomaly.series import WrappedMimirResponse
 from engine.baseline import compute as baseline_compute
 from engine.causal import CausalGraph, bayesian_score, test_all_pairs
 from engine.changepoint import detect as changepoint_detect, ChangePoint
@@ -33,18 +36,26 @@ from engine.dedup import group_metric_anomalies
 from engine.events.registry import DeploymentEvent, EventRegistry
 from engine.fetcher import fetch_metrics
 from engine.forecast import analyze_degradation, forecast
-from engine.ml import cluster, rank
+from engine.forecast.degradation import DegradationSignal
+from engine.forecast.trajectory import TrajectoryForecast
+from engine.ml import AnomalyCluster, RankedCause, cluster, rank
 from engine.registry import get_registry
 from engine.slo import evaluate as slo_evaluate
+from engine.slo.models import SloBurnAlert
 from engine.topology import DependencyGraph
 from store import baseline as baseline_store, granger as granger_store
+from store.events import StoredEvent
 from api.requests import AnalyzeRequest
 from api.responses import (
     AnalysisQuality,
     AnalysisReport,
+    LogBurst,
+    LogPattern,
+    MetricAnomaly,
     RootCause as RootCauseModel,
     SloBurnAlert as SloBurnAlertModel,
 )
+from engine.causal.granger import GrangerResult
 from engine.enums import Severity, Signal
 
 log = logging.getLogger(__name__)
@@ -58,13 +69,18 @@ _RECOVERABLE_ANALYSIS_ERRORS = (
     ValueError,
 )
 
+_ItemT = TypeVar("_ItemT")
+_MetricItemT = TypeVar("_MetricItemT")
+_SortKey: TypeAlias = tuple[float | int | str, ...] | float | int | str
 
-def _overall_severity(*groups) -> Severity:
+
+def _overall_severity(*groups: Sequence[object]) -> Severity:
     best = Severity.low
     for group in groups:
         for item in group:
-            if item.severity.weight() > best.weight():
-                best = item.severity
+            severity = getattr(item, "severity", None)
+            if isinstance(severity, Severity) and severity.weight() > best.weight():
+                best = severity
     return best
 
 
@@ -88,7 +104,7 @@ def _summary(report: AnalysisReport) -> str:
     if report.change_points:
         parts.append(f"{len(report.change_points)} change point(s)")
     if report.forecasts:
-        critical = sum(1 for f in report.forecasts if f.severity.weight() >= 4)
+        critical = sum(1 for f in report.forecasts if getattr(getattr(f, "severity", None), "weight", lambda: 0)() >= 4)
         if critical:
             parts.append(f"{critical} imminent breach(es) predicted")
     if report.degradation_signals:
@@ -150,8 +166,8 @@ def _filter_metric_response_by_services(response: object, services: set[str]) ->
     return response_copy
 
 
-def _to_root_cause_model(rc) -> RootCauseModel:
-    def _normalize_signals(values: list) -> list[Signal]:
+def _to_root_cause_model(rc: object) -> RootCauseModel:
+    def _normalize_signals(values: list[object]) -> list[Signal]:
         normalized: list[Signal] = []
         for raw in values:
             if isinstance(raw, Signal):
@@ -168,7 +184,7 @@ def _to_root_cause_model(rc) -> RootCauseModel:
                 normalized.append(Signal.events)
         return list(dict.fromkeys(normalized))
 
-    def _normalize_payload(payload: dict) -> dict:
+    def _normalize_payload(payload: dict[str, object]) -> dict[str, object]:
         signals = payload.get("contributing_signals")
         if isinstance(signals, list):
             payload["contributing_signals"] = _normalize_signals(signals)
@@ -186,23 +202,25 @@ def _to_root_cause_model(rc) -> RootCauseModel:
         return payload
 
     if dataclasses.is_dataclass(rc) and not isinstance(rc, type):
-        return RootCauseModel(**_normalize_payload(dataclasses.asdict(rc)))
+        return RootCauseModel.model_validate(_normalize_payload(dataclasses.asdict(rc)))
     if isinstance(rc, dict):
-        return RootCauseModel(**_normalize_payload(dict(rc)))
+        return RootCauseModel.model_validate(_normalize_payload(dict(rc)))
     return RootCauseModel.model_validate(rc)
 
 
-def _build_compat_registry(deployment_events: list) -> EventRegistry:
+def _build_compat_registry(deployment_events: list[StoredEvent]) -> EventRegistry:
     registry = EventRegistry()
     for e in deployment_events:
+        metadata_raw = e.get("metadata", {})
+        metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
         registry.register(DeploymentEvent(
-            service=e["service"],
+            service=str(e["service"]),
             timestamp=e["timestamp"],
-            version=e["version"],
-            author=e.get("author", ""),
-            environment=e.get("environment", "production"),
-            source=e.get("source", "redis"),
-            metadata=e.get("metadata", {}),
+            version=str(e["version"]),
+            author=str(e.get("author", "")),
+            environment=str(e.get("environment", "production")),
+            source=str(e.get("source", "redis")),
+            metadata={str(key): str(value) for key, value in metadata.items()},
         ))
     return registry
 
@@ -217,8 +235,8 @@ def _trim_to_len(values: list[float], target_len: int) -> list[float]:
     return values[:target_len]
 
 
-def _dedupe_metric_anomalies(items: list) -> list:
-    selected: dict[tuple[str, int, str], object] = {}
+def _dedupe_metric_anomalies(items: list[MetricAnomaly]) -> list[MetricAnomaly]:
+    selected: dict[tuple[str, int, str], MetricAnomaly] = {}
     for item in items:
         key = (
             str(getattr(item, "metric_name", "metric")),
@@ -254,8 +272,8 @@ def _dedupe_change_points(items: List[ChangePoint]) -> List[ChangePoint]:
     return sorted(selected.values(), key=lambda c: (c.timestamp, c.metric_name))
 
 
-def _dedupe_by_metric_with_severity(items: list) -> list:
-    selected: dict[str, object] = {}
+def _dedupe_by_metric_with_severity(items: list[_MetricItemT]) -> list[_MetricItemT]:
+    selected: dict[str, _MetricItemT] = {}
     for item in items:
         metric_name = str(getattr(item, "metric_name", "metric")).strip() or "metric"
         current = selected.get(metric_name)
@@ -281,7 +299,12 @@ def _dedupe_by_metric_with_severity(items: list) -> list:
     )
 
 
-def _cap_list(items: list, limit: int, key_func, reverse: bool = True) -> list:
+def _cap_list(
+    items: list[_ItemT],
+    limit: int,
+    key_func: Callable[[_ItemT], _SortKey],
+    reverse: bool = True,
+) -> list[_ItemT]:
     capped_limit = max(1, int(limit))
     if len(items) <= capped_limit:
         return items
@@ -290,14 +313,14 @@ def _cap_list(items: list, limit: int, key_func, reverse: bool = True) -> list:
 
 def _limit_analyzer_output(
     *,
-    metric_anomalies: list,
+    metric_anomalies: list[MetricAnomaly],
     change_points: List[ChangePoint],
     root_causes: list[RootCauseModel],
-    ranked_causes: list,
-    anomaly_clusters: list,
-    granger_results: list,
+    ranked_causes: list[RankedCause],
+    anomaly_clusters: list[AnomalyCluster],
+    granger_results: list[GrangerResult],
     warnings: list[str],
-) -> tuple[list, List[ChangePoint], list[RootCauseModel], list, list, list]:
+) -> tuple[list[MetricAnomaly], List[ChangePoint], list[RootCauseModel], list[RankedCause], list[AnomalyCluster], list[GrangerResult]]:
     metric_anomalies_limited = _cap_list(
         metric_anomalies,
         settings.analyzer_max_metric_anomalies,
@@ -404,6 +427,8 @@ def _build_selection_score_components(ranked_item: object, root_cause: RootCause
         ("ml_score", getattr(ranked_item, "ml_score", None)),
         ("final_score", getattr(ranked_item, "final_score", None)),
     ):
+        if value is None:
+            continue
         try:
             number = float(value)
             if math.isfinite(number):
@@ -414,6 +439,8 @@ def _build_selection_score_components(ranked_item: object, root_cause: RootCause
     importances = getattr(ranked_item, "feature_importance", None)
     if isinstance(importances, dict):
         for name, value in importances.items():
+            if not isinstance(value, (str, int, float)):
+                continue
             try:
                 number = float(value)
             except (TypeError, ValueError):
@@ -423,7 +450,7 @@ def _build_selection_score_components(ranked_item: object, root_cause: RootCause
     return components
 
 
-def _compute_anomaly_density(metric_anomalies: list, duration_seconds: float) -> dict[str, float]:
+def _compute_anomaly_density(metric_anomalies: Sequence[MetricAnomaly], duration_seconds: float) -> dict[str, float]:
     if not metric_anomalies:
         return {}
     hours = max(float(duration_seconds) / 3600.0, 1.0 / 60.0)
@@ -440,6 +467,8 @@ def _is_precision_profile() -> bool:
 
 
 def _safe_float(value: object) -> float | None:
+    if not isinstance(value, (str, int, float)):
+        return None
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -449,14 +478,14 @@ def _safe_float(value: object) -> float | None:
     return parsed
 
 
-def _is_strongly_periodic_log_bursts(log_bursts: list) -> bool:
+def _is_strongly_periodic_log_bursts(log_bursts: list[LogBurst]) -> bool:
     if len(log_bursts) < 4:
         return False
-    starts = [
+    raw_starts = [
         _safe_float(getattr(burst, "window_start", getattr(burst, "start", None)))
         for burst in log_bursts
     ]
-    starts = sorted(value for value in starts if value is not None)
+    starts: list[float] = sorted([value for value in raw_starts if value is not None])
     if len(starts) < 4:
         return False
     deltas = [starts[idx] - starts[idx - 1] for idx in range(1, len(starts))]
@@ -477,11 +506,11 @@ def _is_strongly_periodic_log_bursts(log_bursts: list) -> bool:
 
 def _filter_log_bursts_for_precision_rca(
     *,
-    log_bursts: list,
-    log_patterns: list,
+    log_bursts: list[LogBurst],
+    log_patterns: list[LogPattern],
     suppression_counts: dict[str, int],
     warnings: list[str],
-) -> list:
+) -> list[LogBurst]:
     if not log_bursts:
         return log_bursts
     if not _is_precision_profile():
@@ -508,14 +537,14 @@ def _filter_log_bursts_for_precision_rca(
 
 def _apply_precision_quality_gates(
     *,
-    metric_anomalies: list,
+    metric_anomalies: list[MetricAnomaly],
     change_points: List[ChangePoint],
     root_causes: list[RootCauseModel],
-    ranked_causes: list,
+    ranked_causes: list[RankedCause],
     duration_seconds: float,
     suppression_counts: dict[str, int],
     warnings: list[str],
-) -> tuple[list, List[ChangePoint], list[RootCauseModel], list, AnalysisQuality]:
+) -> tuple[list[MetricAnomaly], List[ChangePoint], list[RootCauseModel], list[RankedCause], AnalysisQuality]:
     profile = str(getattr(settings, "quality_gating_profile", "precision_strict_v1")).strip() or "precision_strict_v1"
     is_precision = _is_precision_profile()
     hours = max(float(duration_seconds) / 3600.0, 1.0 / 60.0)
@@ -524,11 +553,11 @@ def _apply_precision_quality_gates(
         max_density = max(0.0, float(getattr(settings, "quality_max_anomaly_density_per_metric_per_hour", 0.0)))
         if max_density > 0:
             keep_per_metric = max(1, int(math.ceil(max_density * hours)))
-            by_metric: dict[str, list] = defaultdict(list)
+            by_metric: dict[str, list[MetricAnomaly]] = defaultdict(list)
             for item in metric_anomalies:
                 metric_name = str(getattr(item, "metric_name", "metric")).strip() or "metric"
                 by_metric[metric_name].append(item)
-            filtered: list = []
+            filtered: list[MetricAnomaly] = []
             suppressed = 0
             for items in by_metric.values():
                 if len(items) <= keep_per_metric:
@@ -563,17 +592,17 @@ def _apply_precision_quality_gates(
         if max_density_cp > 0:
             keep_per_metric_cp = max(1, int(math.ceil(max_density_cp * hours)))
             by_metric_cp: dict[str, list[ChangePoint]] = defaultdict(list)
-            for item in change_points:
-                metric_name = str(getattr(item, "metric_name", "metric")).strip() or "metric"
-                by_metric_cp[metric_name].append(item)
+            for change_point in change_points:
+                metric_name = str(getattr(change_point, "metric_name", "metric")).strip() or "metric"
+                by_metric_cp[metric_name].append(change_point)
             filtered_cp: List[ChangePoint] = []
             suppressed_cp = 0
-            for items in by_metric_cp.values():
-                if len(items) <= keep_per_metric_cp:
-                    filtered_cp.extend(items)
+            for change_point_items in by_metric_cp.values():
+                if len(change_point_items) <= keep_per_metric_cp:
+                    filtered_cp.extend(change_point_items)
                     continue
                 ranked_cp = sorted(
-                    items,
+                    change_point_items,
                     key=lambda c: (
                         float(getattr(c, "magnitude", 0.0)),
                         float(getattr(c, "timestamp", 0.0)),
@@ -581,7 +610,7 @@ def _apply_precision_quality_gates(
                     reverse=True,
                 )
                 filtered_cp.extend(ranked_cp[:keep_per_metric_cp])
-                suppressed_cp += len(items) - keep_per_metric_cp
+                suppressed_cp += len(change_point_items) - keep_per_metric_cp
             change_points = sorted(filtered_cp, key=lambda c: (c.timestamp, c.metric_name))
             if suppressed_cp > 0:
                 suppression_counts["density_suppressed_change_points"] = (
@@ -667,7 +696,7 @@ async def _process_one_metric_series(
     vals: list[float],
     z_threshold: float,
     analysis_window_seconds: float,
-):
+) -> tuple[list[MetricAnomaly], List[ChangePoint], TrajectoryForecast | None, DegradationSignal | None]:
     try:
         # result is persisted by store; value not used later
         _ = await baseline_store.compute_and_persist(req.tenant_id, metric_name, ts, vals, z_threshold)
@@ -706,16 +735,17 @@ async def _process_metrics(
     all_metric_queries: List[str],
     z_threshold: float,
     analysis_window_seconds: float,
-) -> Tuple[list, List[ChangePoint], list, list, Dict[str, List[float]]]:
+) -> Tuple[list[MetricAnomaly], List[ChangePoint], list[TrajectoryForecast], list[DegradationSignal], Dict[str, List[float]]]:
     metrics_raw = await fetch_metrics(provider, all_metric_queries, req.start, req.end, req.step)
     requested_services = _normalize_services(req.services)
     if requested_services:
-        metrics_raw = [
-            (query_string, cast(Dict[str, object], _filter_metric_response_by_services(resp, requested_services)))
-            for query_string, resp in metrics_raw
-        ]
+        filtered_metrics_raw: List[Tuple[str, JSONDict]] = []
+        for query_string, resp in metrics_raw:
+            filtered_resp = _filter_metric_response_by_services(resp, requested_services)
+            filtered_metrics_raw.append((query_string, filtered_resp if isinstance(filtered_resp, dict) else {}))
+        metrics_raw = filtered_metrics_raw
 
-    series_list: List[Tuple[str, str, list, list]] = [
+    series_list: List[Tuple[str, str, list[float], list[float]]] = [
         (query_string, metric_name, ts, vals)
         for query_string, resp in metrics_raw
         for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string)
@@ -735,10 +765,10 @@ async def _process_metrics(
     ]
     processed = await asyncio.gather(*tasks, return_exceptions=True)
 
-    metric_anomalies: list = []
+    metric_anomalies: list[MetricAnomaly] = []
     change_points: List[ChangePoint] = []
-    forecasts: list = []
-    degradation_signals: list = []
+    forecasts: list[TrajectoryForecast] = []
+    degradation_signals: list[DegradationSignal] = []
     series_map: Dict[str, List[float]] = {}
 
     for (query_string, metric_name, _ts, vals), result in zip(series_list, processed):
@@ -746,7 +776,7 @@ async def _process_metrics(
         if isinstance(result, BaseException):
             log.warning("Metric stage failed for %s (%s): %s", metric_name, query_string, result)
             continue
-        metric_stage_anomalies, metric_stage_changes, fc, deg = cast(tuple[list, list, object, object], result)
+        metric_stage_anomalies, metric_stage_changes, fc, deg = result
         metric_anomalies.extend(metric_stage_anomalies)
         change_points.extend(metric_stage_changes)
         if fc:
@@ -757,7 +787,11 @@ async def _process_metrics(
     return metric_anomalies, change_points, forecasts, degradation_signals, series_map
 
 
-def _slo_series_pairs(err_raw, tot_raw, warnings: list[str]) -> list[tuple[list[float], list[float], list[float]]]:
+def _slo_series_pairs(
+    err_raw: anomaly.series.WrappedMimirResponse,
+    tot_raw: anomaly.series.WrappedMimirResponse,
+    warnings: list[str],
+) -> list[tuple[list[float], list[float], list[float]]]:
     err_series = list(anomaly.iter_series(err_raw, query_hint=SLO_ERROR_QUERY))
     tot_series = list(anomaly.iter_series(tot_raw, query_hint=SLO_TOTAL_QUERY))
 
@@ -814,7 +848,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     analysis_window_seconds = float(max(0, req.end - req.start))
 
     log_query = _build_log_query(req.services, req.log_query)
-    trace_filters = {"service.name": primary_service} if primary_service else {}
+    trace_filters: dict[str, str | int | float | bool] = {"service.name": primary_service} if primary_service else {}
     all_metric_queries = list(dict.fromkeys((req.metric_queries or []) + DEFAULT_METRIC_QUERIES))
 
     if req.sensitivity:
@@ -891,7 +925,8 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     logs_started = time.perf_counter()
     log_bursts, log_patterns = [], []
     if isinstance(logs_raw, dict):
-        log_entries = logs_raw.get("data", {}).get("result", [])
+        logs_data = logs_raw.get("data")
+        log_entries = logs_data.get("result", []) if isinstance(logs_data, dict) else []
         if not log_entries and not (req.log_query or "").strip():
             fallback_queries: list[str] = []
             if req.services:
@@ -931,9 +966,12 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
                 except _RECOVERABLE_ANALYSIS_ERRORS as exc:
                     log.debug("Logs fallback selector failed query=%s error=%s", selector, exc)
                     continue
-                if isinstance(fallback_logs, dict) and fallback_logs.get("data", {}).get("result"):
+                fallback_data = fallback_logs.get("data") if isinstance(fallback_logs, dict) else None
+                fallback_results = fallback_data.get("result") if isinstance(fallback_data, dict) else None
+                if isinstance(fallback_logs, dict) and fallback_results:
                     logs_raw = fallback_logs
-                    log_entries = logs_raw.get("data", {}).get("result", [])
+                    logs_data = logs_raw.get("data")
+                    log_entries = logs_data.get("result", []) if isinstance(logs_data, dict) else []
                     log.info("Logs selector fallback succeeded using query=%s", selector)
                     break
 
@@ -968,7 +1006,8 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
                     topology_critical_paths[f"{primary_service}->{service}"] = path
         if topology_critical_paths:
             log.debug("analyzer topology critical_paths=%s", topology_critical_paths)
-        if not traces_raw.get("traces"):
+        trace_payload = traces_raw.get("traces")
+        if not trace_payload:
             warnings.append("Trace query returned no traces; topology and propagation insights are limited.")
             try:
                 fallback = await provider.query_traces(
@@ -996,13 +1035,19 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     log.debug("analyzer stage=traces duration=%.4fs", time.perf_counter() - traces_started)
 
     slo_started = time.perf_counter()
-    slo_alerts_raw = []
-    if not isinstance(slo_errors_raw, Exception) and not isinstance(slo_total_raw, Exception):
+    slo_alerts_raw: list[SloBurnAlert] = []
+    if isinstance(slo_errors_raw, dict) and isinstance(slo_total_raw, dict):
         requested_service_set = _normalize_services(req.services)
+        filtered_slo_errors_raw: WrappedMimirResponse = slo_errors_raw
+        filtered_slo_total_raw: WrappedMimirResponse = slo_total_raw
         if requested_service_set:
-            slo_errors_raw = _filter_metric_response_by_services(slo_errors_raw, requested_service_set)
-            slo_total_raw = _filter_metric_response_by_services(slo_total_raw, requested_service_set)
-        for err_ts, err_vals, tot_vals in _slo_series_pairs(slo_errors_raw, slo_total_raw, warnings):
+            filtered_errors = _filter_metric_response_by_services(slo_errors_raw, requested_service_set)
+            filtered_totals = _filter_metric_response_by_services(slo_total_raw, requested_service_set)
+            if isinstance(filtered_errors, dict):
+                filtered_slo_errors_raw = filtered_errors
+            if isinstance(filtered_totals, dict):
+                filtered_slo_total_raw = filtered_totals
+        for err_ts, err_vals, tot_vals in _slo_series_pairs(filtered_slo_errors_raw, filtered_slo_total_raw, warnings):
             slo_alerts_raw.extend(
                 slo_evaluate(primary_service or "global", err_vals, tot_vals, err_ts, req.slo_target or 0.999)
             )
@@ -1062,7 +1107,8 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     if common_cause_hints:
         log.debug("analyzer causal common_cause_hints=%s", common_cause_hints)
 
-    deployment_events = cast(list[dict], await registry.events_in_window(tenant_id, req.start, req.end))
+    raw_deployment_events = await registry.events_in_window(tenant_id, req.start, req.end)
+    deployment_events = list(raw_deployment_events) if isinstance(raw_deployment_events, list) else []
     bayesian_scores = bayesian_score(
         has_deployment_event=bool(deployment_events),
         has_metric_spike=bool(metric_anomalies),
@@ -1083,7 +1129,7 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
     )
     ranked_causes = rank(root_causes, correlated_events)
     pydantic_root_causes: list[RootCauseModel] = []
-    ranked_valid: list = []
+    ranked_valid: list[RankedCause] = []
     hypothesis_to_ranked: dict[str, object] = {}
     for item in ranked_causes:
         try:
@@ -1141,7 +1187,6 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
         or service_latency
         or error_propagation
         or slo_alerts
-        or pydantic_root_causes
     )
     if not has_actionable_now and (forecasts or degradation_signals or change_points):
         if severity.weight() > Severity.medium.weight():
@@ -1150,6 +1195,9 @@ async def run(provider: DataSourceProvider, req: AnalyzeRequest) -> AnalysisRepo
                 "without corroborating actionable anomalies."
             )
             severity = Severity.medium
+
+    forecasts = [item for item in forecasts if isinstance(item, TrajectoryForecast)]
+    degradation_signals = [item for item in degradation_signals if isinstance(item, DegradationSignal)]
 
     report = AnalysisReport(
         tenant_id=tenant_id,

@@ -10,9 +10,11 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import Field
+
+from custom_types.json import JSONDict
 
 from engine.enums import Severity, Signal
 
@@ -27,5 +29,5 @@ class RootCause(NpModel):
     recommended_action: str
     severity: Severity
     corroboration_summary: Optional[str] = None
-    suppression_diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    suppression_diagnostics: JSONDict = Field(default_factory=dict)
     selection_score_components: Dict[str, float] = Field(default_factory=dict)

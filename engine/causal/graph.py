@@ -15,6 +15,8 @@ from config import settings
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple
 
+from engine.causal.granger import GrangerResult
+
 
 @dataclass(frozen=True)
 class CausalEdge:
@@ -44,7 +46,7 @@ class CausalGraph:
         self._forward[cause].append(edge)
         self._reverse[effect].add(cause)
 
-    def from_granger_results(self, results: list) -> None:
+    def from_granger_results(self, results: list[GrangerResult]) -> None:
         for r in results:
             if r.is_causal:
                 self.add_edge(r.cause_metric, r.effect_metric, r.strength)

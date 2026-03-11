@@ -8,6 +8,8 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from api.routes import slo as slo_route
@@ -104,3 +106,32 @@ async def test_slo_burn_handles_mismatched_series_lengths(monkeypatch):
     res = await slo_route.slo_burn(req)
     assert "burn_alerts" in res
     assert seen["calls"] == 1
+
+
+@pytest.mark.asyncio
+async def test_slo_burn_serializes_budget_status(monkeypatch):
+    dummy = DummyProvider()
+    monkeypatch.setattr(slo_route, "get_provider", lambda tid: dummy)
+    monkeypatch.setattr(
+        slo_route.anomaly,
+        "iter_series",
+        lambda raw, query_hint=None: [("metric", [1], [1.0])],
+    )
+    monkeypatch.setattr(
+        slo_route,
+        "slo_evaluate",
+        lambda service, err_vals, tot_vals, ts, target: [SimpleNamespace(name="fast-burn")],
+    )
+    monkeypatch.setattr(
+        slo_route,
+        "remaining_minutes",
+        lambda service, err_vals, tot_vals, target: SimpleNamespace(remaining=42, status="healthy"),
+    )
+
+    req = SloRequest(tenant_id="t1", service="abc", start=0, end=1, step="1", target_availability=0.99)
+    res = await slo_route.slo_burn(req)
+
+    assert res == {
+        "burn_alerts": [{"name": "fast-burn"}],
+        "budget_status": {"remaining": 42, "status": "healthy"},
+    }

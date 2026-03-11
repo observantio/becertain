@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
 
 from fastapi import APIRouter, Depends
 
@@ -24,6 +23,7 @@ from engine.fetcher import fetch_metrics
 from engine.log_query import build_log_query
 from engine.registry import get_registry
 from services.security_service import enforce_request_tenant, require_permission_dependency
+from custom_types.json import JSONDict
 
 router = APIRouter(tags=["Correlation"])
 
@@ -34,7 +34,7 @@ router = APIRouter(tags=["Correlation"])
     dependencies=[Depends(require_permission_dependency("read:rca"))],
 )
 @handle_exceptions
-async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
+async def correlate_signals(req: CorrelateRequest) -> JSONDict:
     req = enforce_request_tenant(req)
     log_query = build_log_query(req.services, req.log_query)
     provider = get_provider(req.tenant_id)
@@ -51,13 +51,13 @@ async def correlate_signals(req: CorrelateRequest) -> Dict[str, Any]:
     )
 
     metric_anomalies = []
-    if not isinstance(metrics_raw, Exception):
+    if isinstance(metrics_raw, list):
         for query_string, resp in metrics_raw:
             for metric_name, ts, vals in anomaly.iter_series(resp, query_hint=query_string):
                 metric_anomalies.extend(anomaly.detect(metric_name, ts, vals))
 
     log_bursts_list = []
-    if not isinstance(logs_raw, Exception):
+    if isinstance(logs_raw, dict):
         log_bursts_list = logs.detect_bursts(logs_raw)
 
     # compute confidence using tenant-specific signal weights if available

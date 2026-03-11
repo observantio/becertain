@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import httpx
 
@@ -6,6 +6,7 @@ from config import DATASOURCE_TIMEOUT, HEALTH_PATH
 from connectors.common import query_backend_json
 from datasources.base import TracesConnector
 from datasources.retry import retry
+from datasources.types import JSONDict, TraceFilters
 
 
 class TempoConnector(TracesConnector):
@@ -16,19 +17,19 @@ class TempoConnector(TracesConnector):
         base_url: str,
         tenant_id: str,
         timeout: int = DATASOURCE_TIMEOUT,
-        headers: Optional[Dict[str, str]] = None,
-    ):
+        headers: Optional[dict[str, str]] = None,
+    ) -> None:
         super().__init__(tenant_id, base_url, timeout, headers)
 
     @retry(attempts=3, delay=0.5, backoff=2.0, exceptions=(httpx.RequestError, httpx.TimeoutException))
     async def query_range(
         self,
-        filters: Dict[str, Any],
+        filters: TraceFilters,
         start: int,
         end: int,
         limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        params: Dict[str, Any] = {"start": start, "end": end, **filters}
+    ) -> JSONDict:
+        params: dict[str, str | int | float | bool] = {"start": start, "end": end, **filters}
         if limit is not None:
             params["limit"] = limit
         return await query_backend_json(
